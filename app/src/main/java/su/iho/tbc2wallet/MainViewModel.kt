@@ -55,6 +55,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun saveToken(token: String) {
         settings.apiToken = token
+        settings.recentFakeLabel = null   // it belonged to the previous token's Wallet
         _settingsVersion.value++
         refreshFromWallet(learn = true)
     }

@@ -82,7 +82,6 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         val ready = mutableListOf<Pair<TransactionEntity, WalletApi.NewRecord>>()
 
         for (tx in queue) {
-            if (tx.isFake && fakesDeferred) continue
             val currency = tx.currency ?: continue
             val accountId = settings.accountFor(currency)
             if (accountId == null) {
@@ -90,6 +89,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
                 if (tx.status != TxStatus.NEEDS_ACCOUNT) dao.upsertTx(tx.copy(status = TxStatus.NEEDS_ACCOUNT))
                 continue
             }
+            if (tx.isFake && fakesDeferred) continue
             val kind = TxKind.valueOf(tx.kind!!)
             val decision = resolver.resolve(kind, tx.counterParty, accountId)
             val value = tx.amount!!.toBigDecimal().let { if (kind == TxKind.EXPENSE) it.negate() else it }

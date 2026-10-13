@@ -242,7 +242,12 @@ private fun statusLabel(s: TxStatus) = when (s) {
     TxStatus.IGNORED -> "Ignored"
 }
 
-private const val FAKE_SAMPLE = "42.10 GEL\nTBC CARD VISA GOLD (***1234)\nShopsy 29/09/26 23:28\nBalance: 1500.00 GEL"
+/** A purchase dated now in Tbilisi time, so the simulated record lands in today's Wallet activity. */
+private fun fakeSample(): String {
+    val now = java.time.ZonedDateTime.now(su.iho.tbc2wallet.ingest.Ingest.BANK_ZONE)
+    val stamp = now.format(DateTimeFormatter.ofPattern("dd/MM/yy HH:mm"))
+    return "42.10 GEL\nTBC CARD VISA GOLD (***1234)\nShopsy $stamp\nBalance: 1500.00 GEL"
+}
 
 @Composable
 private fun FakeNotificationDialog(onSubmit: (String) -> Unit, onDismiss: () -> Unit) {
@@ -254,18 +259,19 @@ private fun FakeNotificationDialog(onSubmit: (String) -> Unit, onDismiss: () -> 
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
                     "Paste or type the text of a TBC notification. It goes through the parser and rules " +
-                        "like a real one and is sent to Wallet with the \"fake\" label.",
+                        "like a real one, then goes to Wallet marked [fake] in the note and, when Wallet allows it, " +
+                        "with the \"fake\" label.",
                     style = MaterialTheme.typography.bodySmall,
                 )
                 OutlinedTextField(
                     text, { text = it },
                     label = { Text("Notification text") },
-                    placeholder = { Text(FAKE_SAMPLE, fontFamily = FontFamily.Monospace) },
+                    placeholder = { Text(fakeSample(), fontFamily = FontFamily.Monospace) },
                     textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
                     minLines = 4,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                TextButton(onClick = { text = FAKE_SAMPLE }) { Text("Use sample") }
+                TextButton(onClick = { text = fakeSample() }) { Text("Use sample") }
             }
         },
         confirmButton = { TextButton(enabled = text.isNotBlank(), onClick = { onSubmit(text) }) { Text("Simulate") } },
