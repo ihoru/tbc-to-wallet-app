@@ -345,7 +345,7 @@ private fun ruleOutcome(rule: UserRuleEntity) = ruleTarget(rule) + rule.labelNam
 
 /**
  * Short name for a rule on a clash button. Adds "exact" and the scope when set, and the category
- * if that's still not enough, so the two buttons never read the same.
+ * and labels if that's still not enough, so the two buttons never read the same.
  */
 private fun clashButtonName(rule: UserRuleEntity, other: UserRuleEntity): String {
     fun base(r: UserRuleEntity) = "“${r.pattern}”" + listOfNotNull(
@@ -353,7 +353,7 @@ private fun clashButtonName(rule: UserRuleEntity, other: UserRuleEntity): String
         when (r.appliesTo) { "EXPENSE" -> "expenses"; "INCOME" -> "income"; else -> null },
     ).takeIf { it.isNotEmpty() }?.joinToString(prefix = " (", postfix = ")").orEmpty()
     val name = base(rule)
-    return if (name.equals(base(other), ignoreCase = true)) "$name → ${ruleTarget(rule)}" else name
+    return if (name.equals(base(other), ignoreCase = true)) "$name → ${ruleOutcome(rule)}" else name
 }
 
 /** Two rules that can match the same payee but disagree; only [RuleClash.winner] is applied. */
@@ -507,7 +507,8 @@ private fun RuleDialog(vm: MainViewModel, initial: UserRuleEntity, onDismiss: ()
                         categoryName = if (transfer == null) selected!!.displayName else "",
                         transferAccountId = transfer?.first, transferAccountName = transfer?.second,
                         labelIds = chosenLabels.keys.joinToString("\n"),
-                        labelNames = chosenLabels.values.joinToString("\n"),
+                        // Prefer Wallet's current name in case a label was renamed since the rule was saved.
+                        labelNames = chosenLabels.map { (id, name) -> labels.firstOrNull { it.id == id }?.name ?: name }.joinToString("\n"),
                     ))
                     onDismiss()
                 },
