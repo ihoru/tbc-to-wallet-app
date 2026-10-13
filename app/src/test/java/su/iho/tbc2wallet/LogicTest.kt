@@ -3,10 +3,12 @@ package su.iho.tbc2wallet
 import su.iho.tbc2wallet.categorize.AppliesTo
 import su.iho.tbc2wallet.categorize.CategoryResolver
 import su.iho.tbc2wallet.categorize.CategorySource
+import su.iho.tbc2wallet.categorize.CategoryTree
 import su.iho.tbc2wallet.categorize.MatchType
 import su.iho.tbc2wallet.categorize.PayeeLearner
 import su.iho.tbc2wallet.categorize.UserRule
 import su.iho.tbc2wallet.categorize.WalletRule
+import su.iho.tbc2wallet.data.CategoryEntity
 import su.iho.tbc2wallet.parse.TbcNotificationParser
 import su.iho.tbc2wallet.parse.TxKind
 import org.junit.Assert.assertEquals
@@ -118,5 +120,32 @@ class ResolverTest {
             assignedByApp = mapOf("c" to "cat-food"),
         )
         assertEquals("cat-restaurant", map.getValue("WOLT").categoryId)
+    }
+}
+
+class CategoryTreeTest {
+    private val cats = listOf(
+        CategoryEntity("3", "Restaurant", "Food & Drinks"),
+        CategoryEntity("1", "Food & Drinks", null),
+        CategoryEntity("2", "Groceries", "Food & Drinks"),
+        CategoryEntity("4", "Taxi", "Transportation"),
+        CategoryEntity("5", "Income", null),
+    )
+
+    @Test fun groupsChildrenUnderParentSorted() {
+        val tree = CategoryTree.build(cats)
+        assertEquals(listOf("Food & Drinks", "Income", "Transportation"), tree.map { it.name })
+        assertEquals(listOf("Groceries", "Restaurant"), tree[0].children.map { it.name })
+        assertEquals("1", tree[0].category?.id)
+        assertNull(tree[2].category) // parent not in the list: heading only
+    }
+
+    @Test fun filterKeepsMatchingChildrenUnderParent() {
+        val tree = CategoryTree.build(cats)
+        val f = CategoryTree.filter(tree, "rest")
+        assertEquals(listOf("Food & Drinks"), f.map { it.name })
+        assertEquals(listOf("Restaurant"), f[0].children.map { it.name })
+        assertEquals(2, CategoryTree.filter(tree, "food")[0].children.size)
+        assertEquals(tree, CategoryTree.filter(tree, "  "))
     }
 }
