@@ -1,6 +1,7 @@
 package su.iho.tbc2wallet.data
 
 import android.content.Context
+import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
@@ -43,7 +44,7 @@ data class TransactionEntity(
     val categorySource: String? = null,
     val error: String? = null,
     val receivedAt: Long,
-    val isFake: Boolean = false,    // typed in by hand from the Activity tab to test parsing and rules
+    @ColumnInfo(defaultValue = "0") val isFake: Boolean = false,    // typed in by hand from the Activity tab to test parsing and rules
 )
 
 @Entity(tableName = "user_rules")

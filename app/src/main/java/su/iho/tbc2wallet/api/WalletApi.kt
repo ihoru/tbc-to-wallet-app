@@ -9,6 +9,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -104,8 +105,11 @@ class WalletApi(private val token: String) {
         return execute(request, acceptedCodes = setOf(200, 201, 207)) { text ->
             val root = json.parseToJsonElement(text)
             fun JsonElement.id(): String? = (this as? JsonObject)?.get("id")?.jsonPrimitive?.contentOrNull
-            // Documented response: {"label": {"id": ...}, "summary": ...}
-            (root as? JsonObject)?.get("label")?.id() ?: root.id()
+            // The spec documents {"label": {"id": ...}}; also accept the batch envelope other writes use.
+            val obj = root as? JsonObject
+            obj?.get("label")?.id()
+                ?: obj?.get("results")?.jsonArray?.firstOrNull()?.id()
+                ?: root.id()
         }
     }
 
