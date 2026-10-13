@@ -6,6 +6,12 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
@@ -49,9 +55,12 @@ class WalletApi(private val token: String) {
         val category: CategoryEmbed? = null, val source: String? = null,
     )
 
+    @Serializable data class Label(val id: String, val name: String = "", val archived: Boolean = false)
+
     @Serializable private data class AccountsPage(val accounts: List<Account> = emptyList(), val nextOffset: Int? = null)
     @Serializable private data class CategoriesPage(val categories: List<Category> = emptyList(), val nextOffset: Int? = null)
     @Serializable private data class RulesPage(val recordRules: List<RecordRule> = emptyList(), val nextOffset: Int? = null)
+    @Serializable private data class LabelsPage(val labels: List<Label> = emptyList(), val nextOffset: Int? = null)
     @Serializable private data class RecordsPage(val records: List<Record> = emptyList(), val nextOffset: Int? = null)
 
     @Serializable data class Amount(val value: Double, val currencyCode: String? = null)
@@ -62,6 +71,7 @@ class WalletApi(private val token: String) {
         val categoryId: String? = null,
         val counterParty: String? = null,
         val note: String? = null,
+        val labelIds: List<String>? = null,
     )
     @Serializable data class WriteResult(
         val inputIndex: Int, val id: String? = null, val success: Boolean = false,
@@ -81,6 +91,27 @@ class WalletApi(private val token: String) {
 
     suspend fun recordRules(): List<RecordRule> = paged { offset ->
         get<RulesPage>("record-rules", "limit" to "200", "offset" to "$offset").let { it.recordRules to it.nextOffset }
+    }
+
+    suspend fun labels(): List<Label> = paged { offset ->
+        get<LabelsPage>("labels", "limit" to "200", "offset" to "$offset").let { it.labels to it.nextOffset }
+    }
+
+    /**
+     * Creates a label and returns its id. The public docs don't promise label creation, so this
+     * tries the usual shape and reads the id from either a plain object or a batch envelope;
+     * callers should treat any failure as "not supported".
+     */
+    suspend fun createLabel(name: String): String? {
+        val body = json.encodeToString(listOf(mapOf("name" to name))).toRequestBody(JSON)
+        val request = Request.Builder().url(url("labels")).post(body).auth().build()
+        return execute(request, acceptedCodes = setOf(200, 201, 207)) { text ->
+            val root = json.parseToJsonElement(text)
+            fun JsonElement.id(): String? = (this as? JsonObject)?.get("id")?.jsonPrimitive?.contentOrNull
+            root.id()
+                ?: (root as? JsonObject)?.get("results")?.jsonArray?.firstOrNull()?.id()
+                ?: (root as? JsonArray)?.firstOrNull()?.id()
+        }
     }
 
     /** Records on or after [fromDate] (YYYY-MM-DD). [categoryId] may be "unknown". */

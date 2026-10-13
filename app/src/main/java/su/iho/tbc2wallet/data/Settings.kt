@@ -52,6 +52,11 @@ class Settings(context: Context) {
         get() = prefs.getStringSet("unknown_category_ids", emptySet()) ?: emptySet()
         set(value) = prefs.edit().putStringSet("unknown_category_ids", value).apply()
 
+    /** Wallet id of the "fake" label put on simulated transactions; found or created on first use. */
+    var fakeLabelId: String?
+        get() = prefs.getString("fake_label_id", null)
+        set(value) = prefs.edit().putString("fake_label_id", value).apply()
+
     var lastSyncMessage: String?
         get() = prefs.getString("last_sync_message", null)
         set(value) = prefs.edit().putString("last_sync_message", value).apply()

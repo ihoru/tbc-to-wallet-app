@@ -64,6 +64,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         if (queue.isEmpty()) { note("Up to date"); return }
 
         val resolver = buildResolver()
+        val fakeLabel = if (queue.any { it.isFake }) fakeLabelId(api) else null
         val missingAccounts = mutableSetOf<String>()
         val ready = mutableListOf<Pair<TransactionEntity, WalletApi.NewRecord>>()
 
@@ -84,7 +85,9 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
                 recordDate = tx.recordDateUtc!!,
                 categoryId = decision.categoryId,
                 counterParty = tx.counterParty,
-                note = tx.cardLast4?.let { "TBC ***$it" } ?: tx.accountLabel,
+                note = (tx.cardLast4?.let { "TBC ***$it" } ?: tx.accountLabel)
+                    .let { if (tx.isFake) listOfNotNull("[fake]", it).joinToString(" ") else it },
+                labelIds = if (tx.isFake) fakeLabel?.let { listOf(it) } else null,
             )
             ready += tx.copy(
                 categoryId = decision.categoryId,
@@ -103,6 +106,8 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
                     r?.success == true -> dao.upsertTx(tx.copy(status = TxStatus.SENT, walletRecordId = r.id, error = null))
                     r?.errorType == "client_error" -> {
                         failed++; lastError = r.error.orEmpty()
+                        // The cached label may have been deleted in Wallet; look it up again next time.
+                        if (tx.isFake) settings.fakeLabelId = null
                         dao.upsertTx(tx.copy(status = TxStatus.FAILED, error = r.error))
                     }
                     // server_error or missing result: keep it queued for the next run
@@ -114,7 +119,23 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         if (missingAccounts.isNotEmpty()) Notifier.needsAccount(applicationContext, missingAccounts)
         if (failed > 0) Notifier.failed(applicationContext, failed, lastError)
         note("Sent ${ready.size - failed}, failed $failed" +
-            if (missingAccounts.isNotEmpty()) ", waiting for account: ${missingAccounts.joinToString()}" else "")
+            (if (missingAccounts.isNotEmpty()) ", waiting for account: ${missingAccounts.joinToString()}" else "") +
+            (if (ready.any { it.first.isFake } && fakeLabel == null)
+                ". Couldn't find or create the \"$FAKE_LABEL\" label in Wallet, so fake records are marked in the note only" else ""))
+    }
+
+    /**
+     * Finds the Wallet label named "fake", creating it if needed. Returns null when it can't
+     * (the record still goes out, with "[fake]" in its note), so a test never blocks the queue.
+     */
+    private suspend fun fakeLabelId(api: WalletApi): String? {
+        settings.fakeLabelId?.let { return it }
+        val id = runCatching { api.labels().firstOrNull { !it.archived && it.name.equals(FAKE_LABEL, true) }?.id }
+            .onFailure { Log.w(TAG, "listing labels failed", it) }.getOrNull()
+            ?: runCatching { api.createLabel(FAKE_LABEL) }
+                .onFailure { Log.w(TAG, "creating label failed", it) }.getOrNull()
+        settings.fakeLabelId = id
+        return id
     }
 
     private suspend fun buildResolver(): CategoryResolver {
@@ -137,6 +158,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
 
     companion object {
         private const val TAG = "SyncWorker"
+        const val FAKE_LABEL = "fake"
         private val network = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
 
         fun enqueue(context: Context) {

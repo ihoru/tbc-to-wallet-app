@@ -128,6 +128,10 @@ outgoing transfers yet. Anything it can't read is stored as UNPARSED and shown f
   "Change category" through PATCH, and feed that into the learned map.
 - **Unsupported formats.** Georgian-language notifications, refunds, reversals and ATM withdrawals.
   Collect samples from the UNPARSED items.
+- **Fake notifications.** The Activity tab's Fake button runs typed-in text through the same
+  ingest path and tags the Wallet record with a label named "fake" (`GET /v1/api/labels`, or
+  `POST /v1/api/labels` if missing) plus "[fake]" in the note. Label endpoints weren't checked
+  against the OpenAPI spec; if they fail, only the note marks it. Fake items are never deduplicated.
 - **Launcher icon.** Only an adaptive icon exists (minSdk 26, so that's enough).
 - **Owner preference.** Before doing anything on the owner's behalf that can't be fully done,
   say so upfront and let them decide.
