@@ -1,7 +1,9 @@
 package su.iho.tbc2wallet
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS
@@ -78,6 +80,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import su.iho.tbc2wallet.data.AccountEntity
@@ -334,25 +337,35 @@ private fun SettingsScreen(vm: MainViewModel) {
     val accounts by vm.accounts.collectAsState()
     val version by vm.settingsVersion.collectAsState()
     var hasAccess by remember { mutableStateOf(vm.hasNotificationAccess()) }
-    LifecycleResumeEffect(Unit) { hasAccess = vm.hasNotificationAccess(); onPauseOrDispose {} }
+    var canAlert by remember { mutableStateOf(canPostNotifications(context)) }
+    LifecycleResumeEffect(Unit) {
+        hasAccess = vm.hasNotificationAccess()
+        canAlert = canPostNotifications(context)
+        onPauseOrDispose {}
+    }
 
-    val notifPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+    val notifPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { canAlert = it }
+    // Steps are numbered from 1 whichever ones are shown; the access step disappears once everything is granted.
+    val showAccess = !hasAccess || !canAlert
+    val step = if (showAccess) 1 else 0
 
     Column(
         Modifier.verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Section("1. Notification access") {
-            Text(if (hasAccess) "Granted — TBC notifications are being read." else "Needed to read TBC notifications.")
-            if (!hasAccess) Button(onClick = { context.startActivity(Intent(ACTION_NOTIFICATION_LISTENER_SETTINGS)) }) {
-                Text("Open notification access")
+        if (showAccess) Section("1. Notification access") {
+            if (!hasAccess) {
+                Text("Needed to read TBC notifications.")
+                Button(onClick = { context.startActivity(Intent(ACTION_NOTIFICATION_LISTENER_SETTINGS)) }) {
+                    Text("Open notification access")
+                }
             }
-            if (Build.VERSION.SDK_INT >= 33) OutlinedButton(onClick = { notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS) }) {
+            if (!canAlert) OutlinedButton(onClick = { notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS) }) {
                 Text("Allow alerts when something needs attention")
             }
         }
 
-        Section("2. Wallet API token") {
+        Section("${step + 1}. Wallet API token") {
             var token by remember { mutableStateOf("") }
             Text(
                 if (vm.settings.hasToken) "Token saved (encrypted on this phone)." else
@@ -372,7 +385,7 @@ private fun SettingsScreen(vm: MainViewModel) {
             }
         }
 
-        Section("3. Where each currency goes") {
+        Section("${step + 2}. Where each currency goes") {
             key(version) {
                 val currencies = vm.settings.seenCurrencies.sorted()
                 if (accounts.isEmpty()) Text("Connect your token to load accounts.", style = MaterialTheme.typography.bodySmall)
@@ -405,6 +418,10 @@ private fun SettingsScreen(vm: MainViewModel) {
         }
     }
 }
+
+private fun canPostNotifications(context: Context): Boolean =
+    Build.VERSION.SDK_INT < 33 ||
+        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
