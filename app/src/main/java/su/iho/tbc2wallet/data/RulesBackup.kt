@@ -36,14 +36,14 @@ class RulesBackup(context: Context) {
 
     /** Room callback: restores on first creation, refreshes the snapshot on every open. */
     val callback = object : RoomDatabase.Callback() {
-        override fun onCreate(db: SupportSQLiteDatabase) = restore(db)
-        override fun onOpen(db: SupportSQLiteDatabase) = save(db)
+        override fun onCreate(db: SupportSQLiteDatabase) { restore(db) }
+        override fun onOpen(db: SupportSQLiteDatabase) { save(db) }
     }
 
     /** Re-saves the snapshot whenever rules change, whichever code path changed them. */
     fun watch(database: RoomDatabase) {
         database.invalidationTracker.addObserver(object : InvalidationTracker.Observer(TABLE) {
-            override fun onInvalidated(tables: Set<String>) = save(database.openHelper.readableDatabase)
+            override fun onInvalidated(tables: Set<String>) { save(database.openHelper.readableDatabase) }
         })
     }
 
