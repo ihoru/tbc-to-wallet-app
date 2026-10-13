@@ -1,5 +1,6 @@
 package su.iho.tbc2wallet
 
+import kotlinx.serialization.json.JsonPrimitive
 import su.iho.tbc2wallet.categorize.AppliesTo
 import su.iho.tbc2wallet.categorize.CategoryResolver
 import su.iho.tbc2wallet.categorize.CategorySource
@@ -7,6 +8,7 @@ import su.iho.tbc2wallet.categorize.MatchType
 import su.iho.tbc2wallet.categorize.PayeeLearner
 import su.iho.tbc2wallet.categorize.UserRule
 import su.iho.tbc2wallet.categorize.WalletRule
+import su.iho.tbc2wallet.data.RulesBackup
 import su.iho.tbc2wallet.parse.TbcNotificationParser
 import su.iho.tbc2wallet.parse.TxKind
 import org.junit.Assert.assertEquals
@@ -118,5 +120,32 @@ class ResolverTest {
             assignedByApp = mapOf("c" to "cat-food"),
         )
         assertEquals("cat-restaurant", map.getValue("WOLT").categoryId)
+    }
+}
+
+class RulesBackupTest {
+    private val columns = listOf(
+        RulesBackup.Column("id", "INTEGER", notNull = true, hasDefault = false),
+        RulesBackup.Column("pattern", "TEXT", notNull = true, hasDefault = false),
+        RulesBackup.Column("labelIds", "TEXT", notNull = true, hasDefault = false),
+        RulesBackup.Column("transferAccountId", "TEXT", notNull = false, hasDefault = false),
+    )
+
+    @Test fun olderBackupGetsEmptyValuesForNewRequiredColumns() {
+        val row = mapOf("id" to JsonPrimitive(3), "pattern" to JsonPrimitive("Wolt"))
+        val fitted = RulesBackup.completeRow(columns, row)
+        assertEquals(setOf("id", "pattern", "labelIds"), fitted.keys)
+        assertEquals("", (fitted["labelIds"] as JsonPrimitive).content)
+    }
+
+    @Test fun newerBackupDropsUnknownColumns() {
+        val row = mapOf(
+            "id" to JsonPrimitive(1),
+            "pattern" to JsonPrimitive("Bolt"),
+            "labelIds" to JsonPrimitive("a\nb"),
+            "fromTheFuture" to JsonPrimitive("x"),
+        )
+        val fitted = RulesBackup.completeRow(columns, row)
+        assertEquals(setOf("id", "pattern", "labelIds"), fitted.keys)
     }
 }

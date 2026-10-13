@@ -120,6 +120,13 @@ outgoing transfers yet. Anything it can't read is stored as UNPARSED and shown f
 - **Scope.** Personal use only; it will not be published to Play (notification-access and
   financial-data review would apply).
 
+## Backup
+- Android backup / device transfer carries **only** your rules and the currency → account mapping.
+  Rules are mirrored from the database to `files/backup/user_rules.json` on every change
+  (`data/RulesBackup.kt`) and read back when the database is created fresh. The mapping lives in
+  its own prefs file, `account_mapping.xml`. The token, activity log and Wallet caches are excluded
+  (`res/xml/data_extraction_rules.xml`, `res/xml/backup_rules.xml`); after a restore, paste the token again.
+
 ## Known gaps and ideas
 - **Possible duplicate on retry.** If the network drops after Wallet commits but before the
   response arrives, the retry creates a duplicate. Fix: before re-sending, query
