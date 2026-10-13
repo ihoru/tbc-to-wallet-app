@@ -16,27 +16,19 @@ A personal, sideloaded Android app that:
    the queue and the app notifies the owner to map it.
 
 ## Current state
-- The full project was written in a cloud workspace **without an Android SDK and never compiled**.
-  Expect a few compile errors.
+- The project compiles: `./gradlew assembleDebug test` passes (AGP 8.7.3, Gradle 8.11.1 wrapper),
+  with no source changes needed. GitHub Actions (`.github/workflows/android.yml`) runs the same
+  command and uploads `app-debug.apk` as a build artifact.
 - The parser regexes were checked (as Java, same regex engine) against all real samples below,
   and every one parsed correctly.
-- There is **no Gradle wrapper**. Generate one (`gradle wrapper --gradle-version 8.11.1`), or let
-  Android Studio create it.
 - Versions pinned: AGP 8.7.3, Kotlin 2.1.0, KSP 2.1.0-1.0.29, Compose BOM 2024.12.01,
   Room 2.6.1, WorkManager 2.10.0, OkHttp 4.12.0, kotlinx-serialization 1.7.3. minSdk 26,
   target/compile 35.
 
-## First tasks
-1. Generate the Gradle wrapper and get `./gradlew assembleDebug` passing. Likely trouble spots:
-   - `MainActivity.kt`: Material3 API names (`MenuAnchorType`, `ExposedDropdownMenu` inside
-     `ExposedDropdownMenuBox`), and `LifecycleResumeEffect` needs lifecycle-runtime-compose 2.8+.
-   - `data/Database.kt`: the DAO is an `abstract class` with `open` `@Transaction` methods.
-     Check that Room/KSP accept it. `CategoryEntity.displayName` is an extension property on purpose,
-     so Room doesn't treat it as a column.
-   - `WalletApi.kt`: a `private suspend inline reified` function inside a class. If the compiler
-     complains, make it non-private or restructure.
-2. Run `./gradlew test`. `app/src/test/.../LogicTest.kt` covers the parser and the category resolver.
-3. Install on the owner's phone and test with a real TBC notification.
+## Next steps
+1. Install on the owner's phone (debug APK from the CI run, or `./gradlew installDebug`) and test
+   with a real TBC notification.
+2. Run `./gradlew test` after parser or resolver changes. `app/src/test/.../LogicTest.kt` covers both.
 
 ## Layout
 ```
