@@ -66,7 +66,13 @@ class WalletApi(private val token: String) {
         val counterParty: String? = null,
         val note: String? = null,
         val labelIds: List<String>? = null,
+        val transfer: Transfer? = null,
     )
+    /**
+     * Makes the record one side of a transfer with [accountId]; Wallet creates the other side.
+     * The field shape is not verified against the API docs yet (see HANDOFF.md).
+     */
+    @Serializable data class Transfer(val accountId: String)
     @Serializable data class WriteResult(
         val inputIndex: Int, val id: String? = null, val success: Boolean = false,
         val error: String? = null, val errorType: String? = null,

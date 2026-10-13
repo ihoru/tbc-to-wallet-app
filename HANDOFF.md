@@ -123,6 +123,10 @@ outgoing transfers yet. Anything it can't read is stored as UNPARSED and shown f
   financial-data review would apply).
 
 ## Known gaps and ideas
+- **Transfer rules: request shape not verified.** A rule can record a match as a transfer to
+  (expense) or from (income) another Wallet account. It sends `transfer: {"accountId": "<other>"}`
+  on POST /records (`WalletApi.Transfer`), which is a guess: the docs list a `transfer` field but
+  its properties weren't checked. If Wallet rejects it, the item shows as Failed with Wallet's error.
 - **Possible duplicate on retry.** If the network drops after Wallet commits but before the
   response arrives, the retry creates a duplicate. Fix: before re-sending, query
   `GET /records?source=rest&amount=eq.X&recordDate=...` for a match.

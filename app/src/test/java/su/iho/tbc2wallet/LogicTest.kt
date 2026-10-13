@@ -99,6 +99,19 @@ class ResolverTest {
         assertEquals(emptyList<String>(), r.resolve(TxKind.EXPENSE, "CITY GYM", null).labelIds)
     }
 
+    @Test fun transferRuleSendsNoCategory() {
+        val r = CategoryResolver(
+            listOf(UserRule("john smith", MatchType.EXACT, AppliesTo.INCOME, "", "", transferAccountId = "acc-usd", transferAccountName = "Cash USD")),
+            wallet, learned,
+        )
+        val d = r.resolve(TxKind.INCOME, "John Smith", null)
+        assertEquals("acc-usd", d.transferAccountId)
+        assertEquals("Cash USD", d.transferAccountName)
+        assertNull(d.categoryId)
+        assertEquals(CategorySource.USER_RULE, d.source)
+        assertNull(r.resolve(TxKind.EXPENSE, "John Smith", null).transferAccountId) // income-only rule
+    }
+
     @Test fun walletRuleBeatsLearned() {
         val d = CategoryResolver(emptyList(), wallet, learned).resolve(TxKind.EXPENSE, "Shopsy", null)
         assertEquals("cat-shopping", d.categoryId)

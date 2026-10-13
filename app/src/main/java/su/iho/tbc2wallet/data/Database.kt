@@ -56,6 +56,9 @@ data class UserRuleEntity(
     val categoryName: String,
     val labelIds: String = "",     // Wallet label ids, joined with \n
     val labelNames: String = "",   // their names at the time, same order
+    // Set = record matches as a transfer to (expense) / from (income) this Wallet account, not a category.
+    val transferAccountId: String? = null,
+    val transferAccountName: String? = null,
 )
 
 val UserRuleEntity.labelIdList: List<String> get() = labelIds.split("\n").filter { it.isNotBlank() }
@@ -118,6 +121,9 @@ abstract class AppDao {
     @Query("SELECT dedupKey, walletRecordId, categoryId FROM transactions WHERE walletRecordId IS NOT NULL")
     abstract suspend fun sentAssignments(): List<SentAssignment>
 
+    @Query("SELECT walletRecordId FROM transactions WHERE walletRecordId IS NOT NULL AND categorySource = 'TRANSFER'")
+    abstract suspend fun sentTransferIds(): List<String>
+
     @Upsert abstract suspend fun upsertTx(tx: TransactionEntity)
 
     @Query("UPDATE transactions SET status = :status, error = NULL WHERE dedupKey = :key")
@@ -169,7 +175,7 @@ data class SentAssignment(val dedupKey: String, val walletRecordId: String?, val
         TransactionEntity::class, UserRuleEntity::class, WalletRuleEntity::class,
         LearnedEntity::class, CategoryEntity::class, AccountEntity::class, LabelEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -179,7 +185,7 @@ abstract class AppDatabase : RoomDatabase() {
         @Volatile private var instance: AppDatabase? = null
         fun get(context: Context): AppDatabase = instance ?: synchronized(this) {
             instance ?: Room.databaseBuilder(context.applicationContext, AppDatabase::class.java, "tbc2wallet.db")
-                .addMigrations(MIGRATION_1_2)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                 .build().also { instance = it }
         }
 
@@ -189,6 +195,14 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE user_rules ADD COLUMN labelIds TEXT NOT NULL DEFAULT ''")
                 db.execSQL("ALTER TABLE user_rules ADD COLUMN labelNames TEXT NOT NULL DEFAULT ''")
                 db.execSQL("CREATE TABLE IF NOT EXISTS labels (id TEXT NOT NULL, name TEXT NOT NULL, PRIMARY KEY(id))")
+            }
+        }
+
+        /** Rules can turn a match into a transfer with another Wallet account. */
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE user_rules ADD COLUMN transferAccountId TEXT")
+                db.execSQL("ALTER TABLE user_rules ADD COLUMN transferAccountName TEXT")
             }
         }
     }

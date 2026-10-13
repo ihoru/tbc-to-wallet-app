@@ -87,8 +87,13 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
                 counterParty = tx.counterParty,
                 note = tx.cardLast4?.let { "TBC ***$it" } ?: tx.accountLabel,
                 labelIds = decision.labelIds.ifEmpty { null },
+                transfer = decision.transferAccountId?.let { WalletApi.Transfer(it) },
             )
-            ready += tx.copy(
+            ready += if (decision.transferAccountId != null) tx.copy(
+                categoryId = null,
+                categoryName = decision.transferAccountName ?: decision.transferAccountId,
+                categorySource = TRANSFER_SOURCE,
+            ) to record else tx.copy(
                 categoryId = decision.categoryId,
                 categoryName = decision.categoryName,
                 categorySource = decision.source.name,
@@ -121,7 +126,8 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
 
     private suspend fun buildResolver(): CategoryResolver {
         val userRules = dao.userRules().map {
-            UserRule(it.pattern, MatchType.valueOf(it.matchType), AppliesTo.valueOf(it.appliesTo), it.categoryId, it.categoryName, it.labelIdList)
+            UserRule(it.pattern, MatchType.valueOf(it.matchType), AppliesTo.valueOf(it.appliesTo), it.categoryId, it.categoryName, it.labelIdList,
+                it.transferAccountId, it.transferAccountName)
         }
         val walletRules = dao.walletRules().map {
             WalletRule(it.keywords.split("\n"), it.categoryId, it.categoryName, it.fromAccountId)
@@ -139,6 +145,8 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
 
     companion object {
         private const val TAG = "SyncWorker"
+        /** categorySource of a transaction sent as a transfer; categoryName then holds the other account. */
+        const val TRANSFER_SOURCE = "TRANSFER"
         private val network = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
 
         fun enqueue(context: Context) {
