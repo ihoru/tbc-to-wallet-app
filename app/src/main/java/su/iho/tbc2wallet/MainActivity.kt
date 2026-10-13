@@ -33,6 +33,8 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
@@ -81,7 +83,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import su.iho.tbc2wallet.data.AccountEntity
+import su.iho.tbc2wallet.categorize.CategoryResolver
 import su.iho.tbc2wallet.data.CategoryEntity
+import su.iho.tbc2wallet.data.LearnedEntity
 import su.iho.tbc2wallet.data.displayName
 import su.iho.tbc2wallet.data.TransactionEntity
 import su.iho.tbc2wallet.data.TxStatus
@@ -235,7 +239,8 @@ private fun statusLabel(s: TxStatus) = when (s) {
 private fun RulesScreen(vm: MainViewModel, onEdit: (UserRuleEntity) -> Unit) {
     val rules by vm.userRules.collectAsState()
     val walletRules by vm.walletRuleCount.collectAsState()
-    val learned by vm.learnedCount.collectAsState()
+    val learned by vm.learned.collectAsState()
+    var learnedOpen by rememberSaveable { mutableStateOf(false) }
     LazyColumn(contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         item {
             Card(Modifier.fillMaxWidth()) {
@@ -243,7 +248,7 @@ private fun RulesScreen(vm: MainViewModel, onEdit: (UserRuleEntity) -> Unit) {
                     Text("How a category is chosen", style = MaterialTheme.typography.titleSmall)
                     Text("1. Your rules below — always win")
                     Text("2. Wallet's own rules ($walletRules loaded)")
-                    Text("3. Learned from your history ($learned payees)")
+                    Text("3. Learned from your history (${learned.size} payees)")
                     Text("4. Otherwise none — Wallet marks it Unknown")
                     Text(
                         "History is re-read weekly. If you fix a category in Wallet, that correction counts triple next time.",
@@ -255,6 +260,35 @@ private fun RulesScreen(vm: MainViewModel, onEdit: (UserRuleEntity) -> Unit) {
         if (rules.isEmpty()) item { EmptyState("No rules yet. Tap + or use \"Rule…\" on a transaction.") }
         else item { Text("Tap a rule to edit it.", style = MaterialTheme.typography.bodySmall) }
         items(rules, key = { it.id }) { rule -> RuleRow(rule, onEdit = { onEdit(rule) }, onDelete = { vm.deleteRule(rule) }) }
+        if (learned.isNotEmpty()) {
+            item(key = "learned-header") {
+                Row(
+                    Modifier.fillMaxWidth().clickable { learnedOpen = !learnedOpen }.padding(top = 8.dp, bottom = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("Learned from your history (${learned.size})", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+                    Icon(
+                        if (learnedOpen) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                        if (learnedOpen) "Collapse" else "Expand",
+                    )
+                }
+            }
+            if (learnedOpen) {
+                item(key = "learned-hint") {
+                    Text(
+                        "Rebuilt from Wallet every week. Tap one to turn it into your own rule.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                items(learned, key = { "learned-" + it.payeeKey }) { entry ->
+                    LearnedRow(entry, onClick = {
+                        onEdit(newRule(entry.payeeKey).copy(
+                            matchType = "EXACT", categoryId = entry.categoryId, categoryName = entry.categoryName,
+                        ))
+                    })
+                }
+            }
+        }
     }
 }
 
@@ -274,6 +308,22 @@ private fun RuleRow(rule: UserRuleEntity, onEdit: () -> Unit, onDelete: () -> Un
 }
 
 @Composable
+private fun LearnedRow(entry: LearnedEntity, onClick: () -> Unit) {
+    val used = entry.votes >= CategoryResolver.MIN_VOTES &&
+        entry.votes.toDouble() / entry.totalVotes >= CategoryResolver.MIN_SHARE
+    Card(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+            Text("Payee is “${entry.payeeKey}”", style = MaterialTheme.typography.bodyMedium)
+            Text(
+                "→ ${entry.categoryName} · ${entry.votes} of ${entry.totalVotes} votes" + if (used) "" else " · not used yet",
+                style = MaterialTheme.typography.bodySmall,
+                color = if (used) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
 private fun RuleDialog(vm: MainViewModel, initial: UserRuleEntity, onDismiss: () -> Unit) {
     val categories by vm.categories.collectAsState()
     val editing = initial.id != 0L
@@ -281,9 +331,9 @@ private fun RuleDialog(vm: MainViewModel, initial: UserRuleEntity, onDismiss: ()
     var matchType by remember { mutableStateOf(initial.matchType) }
     var appliesTo by remember { mutableStateOf(initial.appliesTo) }
     var query by remember { mutableStateOf("") }
-    // An edited rule keeps its category (id + name) even if it's no longer in the loaded list.
+    // A prefilled category (id + name) is kept even if it's no longer in the loaded list.
     var selected by remember {
-        mutableStateOf(if (editing) CategoryEntity(initial.categoryId, initial.categoryName, null) else null)
+        mutableStateOf(initial.categoryId.takeIf { it.isNotEmpty() }?.let { CategoryEntity(it, initial.categoryName, null) })
     }
 
     AlertDialog(

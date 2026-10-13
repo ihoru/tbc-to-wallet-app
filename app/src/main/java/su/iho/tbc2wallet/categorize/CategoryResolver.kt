@@ -52,8 +52,8 @@ class CategoryResolver(
     userRules: List<UserRule>,
     private val walletRules: List<WalletRule>,
     private val learned: Map<String, LearnedEntry>,
-    private val minVotes: Int = 2,
-    private val minShare: Double = 0.6,
+    private val minVotes: Int = MIN_VOTES,
+    private val minShare: Double = MIN_SHARE,
 ) {
     // Longer / exact patterns are more specific, so they are checked first.
     private val userRules = userRules.sortedWith(
@@ -98,6 +98,10 @@ class CategoryResolver(
 
     companion object {
         private val NONE = CategoryDecision(null, null, CategorySource.NONE)
+
+        /** A learned payee is only used once it has this many votes and this share of them. */
+        const val MIN_VOTES = 2
+        const val MIN_SHARE = 0.6
 
         /**
          * Normalizes a payee so small variations map to one key:

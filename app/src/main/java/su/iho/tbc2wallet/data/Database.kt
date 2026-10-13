@@ -127,6 +127,7 @@ abstract class AppDao {
     @Transaction open suspend fun replaceWalletRules(rules: List<WalletRuleEntity>) { clearWalletRules(); insertWalletRules(rules) }
 
     @Query("SELECT * FROM learned") abstract suspend fun learned(): List<LearnedEntity>
+    @Query("SELECT * FROM learned ORDER BY payeeKey") abstract fun observeLearned(): Flow<List<LearnedEntity>>
     @Query("SELECT COUNT(*) FROM learned") abstract fun observeLearnedCount(): Flow<Int>
     @Query("DELETE FROM learned") abstract suspend fun clearLearned()
     @Insert abstract suspend fun insertLearned(items: List<LearnedEntity>)

@@ -30,7 +30,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val categories = dao.observeCategories().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val accounts = dao.observeAccounts().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val walletRuleCount = dao.observeWalletRuleCount().stateIn(viewModelScope, SharingStarted.Eagerly, 0)
-    val learnedCount = dao.observeLearnedCount().stateIn(viewModelScope, SharingStarted.Eagerly, 0)
+    val learned = dao.observeLearned().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message.asStateFlow()
