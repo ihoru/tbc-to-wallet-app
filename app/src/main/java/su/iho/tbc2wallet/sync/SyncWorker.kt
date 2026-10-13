@@ -46,8 +46,8 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
             if (catalog.learnedStale()) runCatching { catalog.refreshLearned(api) }
                 .onFailure { Log.w(TAG, "learning skipped", it) }
 
-            sendQueued(api)
-            Result.success()
+            // Fakes held back by a label-endpoint outage are retried with backoff.
+            if (sendQueued(api)) Result.retry() else Result.success()
         } catch (e: WalletApi.ApiException.Unauthorized) {
             note("Wallet rejected the API token. Paste a new one in Settings.")
             Notifier.failed(applicationContext, dao.toSend().size, "Wallet rejected the API token.")
@@ -59,18 +59,30 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         }
     }
 
-    private suspend fun sendQueued(api: WalletApi) {
+    /** Returns true when fake records were held back because the label lookup hit a transient error. */
+    private suspend fun sendQueued(api: WalletApi): Boolean {
         val queue = dao.toSend()
-        if (queue.isEmpty()) { note("Up to date"); return }
+        if (queue.isEmpty()) { note("Up to date"); return false }
 
         val resolver = buildResolver()
         // Only look the label up when a fake record can actually be sent this run.
         val sendableFake = queue.any { tx -> tx.isFake && tx.currency?.let { settings.accountFor(it) } != null }
-        val fakeLabel = if (sendableFake) fakeLabelId(api) else null
+        // A transient label failure (5xx, network) only holds back the fakes; real records still go.
+        // Rate limits and auth errors still stop the whole run.
+        var fakesDeferred = false
+        val fakeLabel = if (!sendableFake) null else try {
+            fakeLabelId(api)
+        } catch (e: java.io.IOException) {
+            if (e is WalletApi.ApiException && e !is WalletApi.ApiException.Http) throw e
+            Log.w(TAG, "label lookup failed; fake records wait for the next run", e)
+            fakesDeferred = true
+            null
+        }
         val missingAccounts = mutableSetOf<String>()
         val ready = mutableListOf<Pair<TransactionEntity, WalletApi.NewRecord>>()
 
         for (tx in queue) {
+            if (tx.isFake && fakesDeferred) continue
             val currency = tx.currency ?: continue
             val accountId = settings.accountFor(currency)
             if (accountId == null) {
@@ -120,8 +132,10 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         if (failed > 0) Notifier.failed(applicationContext, failed, lastError)
         note("Sent ${ready.size - failed}, failed $failed" +
             (if (missingAccounts.isNotEmpty()) ", waiting for account: ${missingAccounts.joinToString()}" else "") +
-            (if (ready.any { it.first.isFake } && fakeLabel == null)
+            (if (fakesDeferred) ". Fake records wait: Wallet's label service didn't answer"
+            else if (ready.any { it.first.isFake } && fakeLabel == null)
                 ". Couldn't find or create the \"$FAKE_LABEL\" label in Wallet, so fake records are marked in the note only" else ""))
+        return fakesDeferred
     }
 
     /**
@@ -140,8 +154,9 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         }
         labels.firstOrNull { !it.archived && it.name.equals(FAKE_LABEL, true) }?.let { return it.id }
         // A label created in the last few minutes may not be listed yet; reuse it, don't duplicate it.
+        // Only when Wallet doesn't list that id at all; if it lists it renamed or archived, it's stale.
         settings.recentFakeLabel?.let { (id, at) ->
-            if (System.currentTimeMillis() - at < RECENT_LABEL_MS) return id
+            if (System.currentTimeMillis() - at < RECENT_LABEL_MS && labels.none { it.id == id }) return id
         }
         return try {
             api.createLabel(FAKE_LABEL)?.also { settings.recentFakeLabel = it to System.currentTimeMillis() }
