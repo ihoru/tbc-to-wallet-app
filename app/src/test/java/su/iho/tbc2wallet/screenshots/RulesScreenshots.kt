@@ -59,6 +59,8 @@ class RulesScreenshots {
                 categoryId = "groceries", categoryName = "Food & Drinks › Groceries", labelIds = "l1\nl2", labelNames = "delivery\nweekly"),
             UserRuleEntity(pattern = "Bolt", matchType = "CONTAINS", appliesTo = "EXPENSE",
                 categoryId = "taxi", categoryName = "Transportation › Taxi", labelIds = "l3", labelNames = "work"),
+            UserRuleEntity(pattern = "Bolt", matchType = "CONTAINS", appliesTo = "ANY",
+                categoryId = "fuel", categoryName = "Vehicle › Fuel"),
         ).forEach { dao.insertUserRule(it) }
         dao.replaceLearned(listOf(
             LearnedEntity("GLOVO TBILISI", "food", "Food & Drinks › Restaurant, fast-food", 7, 8),

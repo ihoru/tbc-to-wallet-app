@@ -331,10 +331,24 @@ private fun RuleRow(rule: UserRuleEntity, clashing: Boolean, onEdit: () -> Unit,
 
 private fun ruleSummary(rule: UserRuleEntity): String {
     val how = if (rule.matchType == "EXACT") "is" else "contains"
-    return "payee $how “${rule.pattern}”"
+    val scope = when (rule.appliesTo) { "EXPENSE" -> " for expenses"; "INCOME" -> " for income"; else -> "" }
+    return "payee $how “${rule.pattern}”$scope"
 }
 
 private fun ruleOutcome(rule: UserRuleEntity) = rule.categoryName + rule.labelNameList.joinToString("") { " #$it" }
+
+/**
+ * Short name for a rule on a clash button. Adds "exact" and the scope when set, and the category
+ * if that's still not enough, so the two buttons never read the same.
+ */
+private fun clashButtonName(rule: UserRuleEntity, other: UserRuleEntity): String {
+    fun base(r: UserRuleEntity) = "“${r.pattern}”" + listOfNotNull(
+        "exact".takeIf { r.matchType == "EXACT" },
+        when (r.appliesTo) { "EXPENSE" -> "expenses"; "INCOME" -> "income"; else -> null },
+    ).takeIf { it.isNotEmpty() }?.joinToString(prefix = " (", postfix = ")").orEmpty()
+    val name = base(rule)
+    return if (name.equals(base(other), ignoreCase = true)) "$name → ${rule.categoryName}" else name
+}
 
 /** Two rules that can match the same payee but disagree; only [RuleClash.winner] is applied. */
 @OptIn(ExperimentalLayoutApi::class)
@@ -356,10 +370,10 @@ private fun ClashCard(clash: RuleClash<UserRuleEntity>, onKeep: (UserRuleEntity)
                 "A payee matching both gets ${ruleOutcome(clash.winner)}, from the rule where ${ruleSummary(clash.winner)}.",
                 style = MaterialTheme.typography.bodySmall,
             )
-            FlowRow {
-                for (rule in listOf(a, b)) {
-                    TextButton(onClick = { onKeep(rule) }) { Text("Keep only “${rule.pattern}”") }
-                    TextButton(onClick = { onEdit(rule) }) { Text("Edit “${rule.pattern}”") }
+            for (rule in listOf(a, b)) {
+                FlowRow {
+                    TextButton(onClick = { onKeep(rule) }) { Text("Keep only ${clashButtonName(rule, other = if (rule == a) b else a)}") }
+                    TextButton(onClick = { onEdit(rule) }) { Text("Edit") }
                 }
             }
         }

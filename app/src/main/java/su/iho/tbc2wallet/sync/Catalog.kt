@@ -42,9 +42,9 @@ class Catalog(private val context: Context) {
         })
         // The labels endpoint isn't in the documented API facts, so a failure here only leaves
         // the rule dialog without labels to pick; it never blocks the rest of the catalog.
-        runCatching { api.labels() }
-            .onSuccess { labels -> dao.replaceLabels(labels.filterNot { it.archived }.map { LabelEntity(it.id, it.name) }) }
-            .onFailure { Log.w("Catalog", "labels not loaded", it) }
+        val labels = runCatching { api.labels() }.onFailure { Log.w("Catalog", "labels not loaded", it) }.getOrNull()
+        // On failure, drop the cache too: it may belong to a token that's no longer the one in use.
+        dao.replaceLabels(labels.orEmpty().filterNot { it.archived }.map { LabelEntity(it.id, it.name) })
         settings.lastCatalogRefresh = System.currentTimeMillis()
     }
 
