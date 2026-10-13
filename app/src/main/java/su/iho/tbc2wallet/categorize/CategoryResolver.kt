@@ -64,11 +64,7 @@ class CategoryResolver(
     private val minVotes: Int = MIN_VOTES,
     private val minShare: Double = MIN_SHARE,
 ) {
-    // Longer / exact patterns are more specific, so they are checked first.
-    private val userRules = userRules.sortedWith(
-        compareByDescending<UserRule> { it.matchType == MatchType.EXACT }
-            .thenByDescending { it.pattern.length }
-    )
+    private val userRules = userRules.sortedWith(RULE_PRIORITY)
 
     fun resolve(kind: TxKind, counterParty: String?, accountId: String?): CategoryDecision {
         val payee = counterParty?.trim().orEmpty()
@@ -110,6 +106,13 @@ class CategoryResolver(
 
     companion object {
         private val NONE = CategoryDecision(null, null, CategorySource.NONE)
+
+        /**
+         * Order in which your rules are tried: exact before contains, then longer patterns first,
+         * since they're more specific. Ties keep the list order (oldest rule first).
+         */
+        val RULE_PRIORITY: Comparator<UserRule> =
+            compareByDescending<UserRule> { it.matchType == MatchType.EXACT }.thenByDescending { it.pattern.length }
 
         /** A learned payee is only used once it has this many votes and this share of them. */
         const val MIN_VOTES = 2

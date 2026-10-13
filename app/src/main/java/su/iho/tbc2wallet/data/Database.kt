@@ -16,6 +16,9 @@ import androidx.room.Upsert
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
+import su.iho.tbc2wallet.categorize.AppliesTo
+import su.iho.tbc2wallet.categorize.MatchType
+import su.iho.tbc2wallet.categorize.UserRule
 
 enum class TxStatus {
     PENDING,        // parsed, waiting to be sent
@@ -63,6 +66,10 @@ data class UserRuleEntity(
 
 val UserRuleEntity.labelIdList: List<String> get() = labelIds.split("\n").filter { it.isNotBlank() }
 val UserRuleEntity.labelNameList: List<String> get() = labelNames.split("\n").filter { it.isNotBlank() }
+
+fun UserRuleEntity.toUserRule() =
+    UserRule(pattern, MatchType.valueOf(matchType), AppliesTo.valueOf(appliesTo), categoryId, categoryName, labelIdList,
+        transferAccountId, transferAccountName)
 
 @Entity(tableName = "wallet_rules")
 data class WalletRuleEntity(
@@ -130,8 +137,8 @@ abstract class AppDao {
     abstract suspend fun requeueNeedsAccount()
 
     // --- rules & caches
-    @Query("SELECT * FROM user_rules ORDER BY pattern") abstract fun observeUserRules(): Flow<List<UserRuleEntity>>
-    @Query("SELECT * FROM user_rules") abstract suspend fun userRules(): List<UserRuleEntity>
+    @Query("SELECT * FROM user_rules ORDER BY pattern COLLATE NOCASE, id") abstract fun observeUserRules(): Flow<List<UserRuleEntity>>
+    @Query("SELECT * FROM user_rules ORDER BY id") abstract suspend fun userRules(): List<UserRuleEntity>
     @Insert abstract suspend fun insertUserRule(rule: UserRuleEntity)
     @Update abstract suspend fun updateUserRule(rule: UserRuleEntity)
     @Query("DELETE FROM user_rules WHERE id = :id") abstract suspend fun deleteUserRule(id: Long)

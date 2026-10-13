@@ -13,17 +13,14 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import su.iho.tbc2wallet.api.WalletApi
-import su.iho.tbc2wallet.categorize.AppliesTo
 import su.iho.tbc2wallet.categorize.CategoryResolver
 import su.iho.tbc2wallet.categorize.LearnedEntry
-import su.iho.tbc2wallet.categorize.MatchType
-import su.iho.tbc2wallet.categorize.UserRule
 import su.iho.tbc2wallet.categorize.WalletRule
 import su.iho.tbc2wallet.data.AppDatabase
 import su.iho.tbc2wallet.data.Settings
 import su.iho.tbc2wallet.data.TransactionEntity
 import su.iho.tbc2wallet.data.TxStatus
-import su.iho.tbc2wallet.data.labelIdList
+import su.iho.tbc2wallet.data.toUserRule
 import su.iho.tbc2wallet.ingest.Notifier
 import su.iho.tbc2wallet.parse.TxKind
 import java.util.concurrent.TimeUnit
@@ -125,10 +122,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
     }
 
     private suspend fun buildResolver(): CategoryResolver {
-        val userRules = dao.userRules().map {
-            UserRule(it.pattern, MatchType.valueOf(it.matchType), AppliesTo.valueOf(it.appliesTo), it.categoryId, it.categoryName, it.labelIdList,
-                it.transferAccountId, it.transferAccountName)
-        }
+        val userRules = dao.userRules().map { it.toUserRule() }
         val walletRules = dao.walletRules().map {
             WalletRule(it.keywords.split("\n"), it.categoryId, it.categoryName, it.fromAccountId)
         }
