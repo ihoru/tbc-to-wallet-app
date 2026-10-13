@@ -5,6 +5,7 @@ import su.iho.tbc2wallet.categorize.CategoryResolver
 import su.iho.tbc2wallet.categorize.CategorySource
 import su.iho.tbc2wallet.categorize.MatchType
 import su.iho.tbc2wallet.categorize.PayeeLearner
+import su.iho.tbc2wallet.categorize.RuleClashes
 import su.iho.tbc2wallet.categorize.UserRule
 import su.iho.tbc2wallet.categorize.WalletRule
 import su.iho.tbc2wallet.parse.TbcNotificationParser
@@ -97,6 +98,37 @@ class ResolverTest {
         )
         assertEquals(listOf("lbl-1", "lbl-2"), r.resolve(TxKind.EXPENSE, "Shopsy", null).labelIds)
         assertEquals(emptyList<String>(), r.resolve(TxKind.EXPENSE, "CITY GYM", null).labelIds)
+    }
+
+    private fun rule(p: String, m: MatchType = MatchType.CONTAINS, s: AppliesTo = AppliesTo.ANY, cat: String = "c1", labels: List<String> = emptyList()) =
+        UserRule(p, m, s, cat, cat, labels)
+
+    @Test fun nestedContainsRulesWithDifferentCategoriesClash() {
+        val rules = listOf(rule("wolt"), rule("Wolt Market", cat = "c2"))
+        val clashes = RuleClashes.find(rules) { it }
+        assertEquals(1, clashes.size)
+        assertEquals("Wolt Market", clashes[0].winner.pattern) // longer pattern is tried first
+    }
+
+    @Test fun exactRuleWinsOverContains() {
+        val clashes = RuleClashes.find(listOf(rule("wolt", cat = "c2"), rule("Wolt Market", MatchType.EXACT))) { it }
+        assertEquals(MatchType.EXACT, clashes.single().winner.matchType)
+    }
+
+    @Test fun differentLabelsAlsoClash() {
+        assertEquals(1, RuleClashes.find(listOf(rule("wolt"), rule("wolt", labels = listOf("l1")))) { it }.size)
+    }
+
+    @Test fun noClashForSameOutcomeSeparateScopesOrUnrelatedPatterns() {
+        assertEquals(0, RuleClashes.find(listOf(rule("wolt"), rule("wolt market"))) { it }.size)
+        assertEquals(0, RuleClashes.find(listOf(rule("wolt", s = AppliesTo.EXPENSE), rule("wolt", s = AppliesTo.INCOME, cat = "c2"))) { it }.size)
+        assertEquals(0, RuleClashes.find(listOf(rule("wolt"), rule("glovo", cat = "c2"))) { it }.size)
+        assertEquals(0, RuleClashes.find(listOf(rule("wolt", MatchType.EXACT), rule("wolt market", MatchType.EXACT, cat = "c2"))) { it }.size)
+    }
+
+    @Test fun equalPriorityTieGoesToOlderRule() {
+        val clashes = RuleClashes.find(listOf(rule("wolt"), rule("WOLT", cat = "c2"))) { it }
+        assertEquals("c1", clashes.single().winner.categoryId)
     }
 
     @Test fun walletRuleBeatsLearned() {

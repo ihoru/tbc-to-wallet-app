@@ -38,10 +38,12 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -86,11 +88,14 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import su.iho.tbc2wallet.data.AccountEntity
 import su.iho.tbc2wallet.categorize.CategoryResolver
+import su.iho.tbc2wallet.categorize.RuleClash
+import su.iho.tbc2wallet.categorize.RuleClashes
 import su.iho.tbc2wallet.data.CategoryEntity
 import su.iho.tbc2wallet.data.LearnedEntity
 import su.iho.tbc2wallet.data.displayName
 import su.iho.tbc2wallet.data.labelIdList
 import su.iho.tbc2wallet.data.labelNameList
+import su.iho.tbc2wallet.data.toUserRule
 import su.iho.tbc2wallet.data.TransactionEntity
 import su.iho.tbc2wallet.data.TxStatus
 import su.iho.tbc2wallet.data.UserRuleEntity
@@ -245,6 +250,8 @@ private fun RulesScreen(vm: MainViewModel, onEdit: (UserRuleEntity) -> Unit) {
     val walletRules by vm.walletRuleCount.collectAsState()
     val learned by vm.learned.collectAsState()
     var learnedOpen by rememberSaveable { mutableStateOf(false) }
+    val clashes = remember(rules) { RuleClashes.find(rules.sortedBy { it.id }) { it.toUserRule() } }
+    val clashing = remember(clashes) { clashes.flatMap { listOf(it.first.id, it.second.id) }.toSet() }
     LazyColumn(contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         item {
             Card(Modifier.fillMaxWidth()) {
@@ -263,7 +270,12 @@ private fun RulesScreen(vm: MainViewModel, onEdit: (UserRuleEntity) -> Unit) {
         }
         if (rules.isEmpty()) item { EmptyState("No rules yet. Tap + or use \"Rule…\" on a transaction.") }
         else item { Text("Tap a rule to edit it.", style = MaterialTheme.typography.bodySmall) }
-        items(rules, key = { it.id }) { rule -> RuleRow(rule, onEdit = { onEdit(rule) }, onDelete = { vm.deleteRule(rule) }) }
+        items(clashes, key = { "clash-${it.first.id}-${it.second.id}" }) { clash ->
+            ClashCard(clash, onKeep = { keep -> vm.deleteRule(if (keep == clash.first) clash.second else clash.first) }, onEdit = onEdit)
+        }
+        items(rules, key = { it.id }) { rule ->
+            RuleRow(rule, clashing = rule.id in clashing, onEdit = { onEdit(rule) }, onDelete = { vm.deleteRule(rule) })
+        }
         if (learned.isNotEmpty()) {
             item(key = "learned-header") {
                 Row(
@@ -297,7 +309,7 @@ private fun RulesScreen(vm: MainViewModel, onEdit: (UserRuleEntity) -> Unit) {
 }
 
 @Composable
-private fun RuleRow(rule: UserRuleEntity, onEdit: () -> Unit, onDelete: () -> Unit) {
+private fun RuleRow(rule: UserRuleEntity, clashing: Boolean, onEdit: () -> Unit, onDelete: () -> Unit) {
     Card(Modifier.fillMaxWidth().clickable(onClick = onEdit)) {
         Row(Modifier.padding(start = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f).padding(vertical = 10.dp)) {
@@ -307,7 +319,45 @@ private fun RuleRow(rule: UserRuleEntity, onEdit: () -> Unit, onDelete: () -> Un
                 val labels = rule.labelNameList.joinToString("") { " · #$it" }
                 Text("→ ${rule.categoryName}$labels", style = MaterialTheme.typography.bodySmall)
             }
+            if (clashing) Icon(Icons.Default.Warning, "Clashes with another rule", tint = MaterialTheme.colorScheme.error)
             IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, "Delete rule") }
+        }
+    }
+}
+
+private fun ruleSummary(rule: UserRuleEntity): String {
+    val how = if (rule.matchType == "EXACT") "is" else "contains"
+    return "payee $how “${rule.pattern}”"
+}
+
+private fun ruleOutcome(rule: UserRuleEntity) = rule.categoryName + rule.labelNameList.joinToString("") { " #$it" }
+
+/** Two rules that can match the same payee but disagree; only [RuleClash.winner] is applied. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ClashCard(clash: RuleClash<UserRuleEntity>, onKeep: (UserRuleEntity) -> Unit, onEdit: (UserRuleEntity) -> Unit) {
+    val (a, b) = clash.first to clash.second
+    Card(
+        Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+    ) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Icon(Icons.Default.Warning, null)
+                Text("These rules clash", style = MaterialTheme.typography.titleSmall)
+            }
+            Text("• ${ruleSummary(a).replaceFirstChar { it.uppercase() }} → ${ruleOutcome(a)}", style = MaterialTheme.typography.bodySmall)
+            Text("• ${ruleSummary(b).replaceFirstChar { it.uppercase() }} → ${ruleOutcome(b)}", style = MaterialTheme.typography.bodySmall)
+            Text(
+                "A payee matching both gets ${ruleOutcome(clash.winner)}, from the rule where ${ruleSummary(clash.winner)}.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            FlowRow {
+                for (rule in listOf(a, b)) {
+                    TextButton(onClick = { onKeep(rule) }) { Text("Keep only “${rule.pattern}”") }
+                    TextButton(onClick = { onEdit(rule) }) { Text("Edit “${rule.pattern}”") }
+                }
+            }
         }
     }
 }
