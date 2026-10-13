@@ -87,7 +87,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
                 counterParty = tx.counterParty,
                 note = tx.cardLast4?.let { "TBC ***$it" } ?: tx.accountLabel,
                 labelIds = decision.labelIds.ifEmpty { null },
-                transfer = decision.transferAccountId?.let { WalletApi.Transfer(it) },
+                transfer = decision.transferAccountId?.let { WalletApi.Transfer(it, pairingMode = "new") },
             )
             ready += if (decision.transferAccountId != null) tx.copy(
                 categoryId = null,

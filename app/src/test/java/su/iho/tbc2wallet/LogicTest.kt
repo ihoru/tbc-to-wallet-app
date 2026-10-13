@@ -1,5 +1,6 @@
 package su.iho.tbc2wallet
 
+import su.iho.tbc2wallet.api.WalletApi
 import su.iho.tbc2wallet.categorize.AppliesTo
 import su.iho.tbc2wallet.categorize.CategoryResolver
 import su.iho.tbc2wallet.categorize.CategorySource
@@ -11,6 +12,7 @@ import su.iho.tbc2wallet.parse.TbcNotificationParser
 import su.iho.tbc2wallet.parse.TxKind
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.math.BigDecimal
 import java.time.LocalDate
@@ -140,5 +142,17 @@ class ResolverTest {
             assignedByApp = mapOf("c" to "cat-food"),
         )
         assertEquals("cat-restaurant", map.getValue("WOLT").categoryId)
+    }
+}
+
+class WalletJsonTest {
+    @Test fun transferRecordCarriesPairingMode() {
+        val record = WalletApi.NewRecord(
+            accountId = "acc-gel", amount = WalletApi.Amount(-20.0, "GEL"), recordDate = "2026-09-29T08:00:00Z",
+            transfer = WalletApi.Transfer("acc-usd", pairingMode = "new"),
+        )
+        val json = WalletApi.json.encodeToString(WalletApi.NewRecord.serializer(), record)
+        assertTrue(json, json.contains(""""transfer":{"accountId":"acc-usd","pairingMode":"new"}"""))
+        assertTrue(json, !json.contains("categoryId"))
     }
 }

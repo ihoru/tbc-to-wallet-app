@@ -59,9 +59,8 @@ class Catalog(private val context: Context) {
             if (unknown.isNotEmpty()) settings.unknownCategoryIds = unknown
         }
 
-        // Transfers the app sent carry Wallet's transfer category, not a payee choice; don't learn from them.
-        val transferIds = dao.sentTransferIds().toSet()
-        val history = api.records(from).filter { it.id !in transferIds }.map {
+        // A transfer's category is Wallet's, not a choice made for the payee, so it isn't learned.
+        val history = api.records(from).filter { it.transfer == null }.map {
             PayeeLearner.HistoryRecord(it.id, it.counterParty, it.category?.id, it.category?.name)
         }
         val assignedByApp = dao.sentAssignments()
