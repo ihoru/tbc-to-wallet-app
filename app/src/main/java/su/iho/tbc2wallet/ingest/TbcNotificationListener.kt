@@ -1,4 +1,4 @@
-package app.tbcwallet.ingest
+package su.iho.tbc2wallet.ingest
 
 import android.app.Notification
 import android.content.Context
@@ -6,14 +6,14 @@ import android.os.Bundle
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.util.Log
-import app.tbcwallet.data.AppDatabase
-import app.tbcwallet.data.Settings
-import app.tbcwallet.data.TransactionEntity
-import app.tbcwallet.data.TxStatus
-import app.tbcwallet.parse.ParsedTransaction
-import app.tbcwallet.parse.TbcNotificationParser
-import app.tbcwallet.parse.TxKind
-import app.tbcwallet.sync.SyncWorker
+import su.iho.tbc2wallet.data.AppDatabase
+import su.iho.tbc2wallet.data.Settings
+import su.iho.tbc2wallet.data.TransactionEntity
+import su.iho.tbc2wallet.data.TxStatus
+import su.iho.tbc2wallet.parse.ParsedTransaction
+import su.iho.tbc2wallet.parse.TbcNotificationParser
+import su.iho.tbc2wallet.parse.TxKind
+import su.iho.tbc2wallet.sync.SyncWorker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob

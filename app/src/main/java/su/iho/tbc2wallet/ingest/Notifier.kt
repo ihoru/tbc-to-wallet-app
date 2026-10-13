@@ -1,4 +1,4 @@
-package app.tbcwallet.ingest
+package su.iho.tbc2wallet.ingest
 
 import android.Manifest
 import android.annotation.SuppressLint
@@ -12,8 +12,8 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
-import app.tbcwallet.MainActivity
-import app.tbcwallet.R
+import su.iho.tbc2wallet.MainActivity
+import su.iho.tbc2wallet.R
 
 /** Tells you when something needs attention; successful syncs stay silent. */
 object Notifier {

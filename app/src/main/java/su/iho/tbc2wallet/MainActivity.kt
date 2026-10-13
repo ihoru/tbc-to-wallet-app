@@ -1,4 +1,4 @@
-package app.tbcwallet
+package su.iho.tbc2wallet
 
 import android.Manifest
 import android.content.Intent
@@ -80,13 +80,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.lifecycle.compose.LifecycleResumeEffect
-import app.tbcwallet.data.AccountEntity
-import app.tbcwallet.data.CategoryEntity
-import app.tbcwallet.data.displayName
-import app.tbcwallet.data.TransactionEntity
-import app.tbcwallet.data.TxStatus
-import app.tbcwallet.data.UserRuleEntity
-import app.tbcwallet.sync.SyncWorker
+import su.iho.tbc2wallet.data.AccountEntity
+import su.iho.tbc2wallet.data.CategoryEntity
+import su.iho.tbc2wallet.data.displayName
+import su.iho.tbc2wallet.data.TransactionEntity
+import su.iho.tbc2wallet.data.TxStatus
+import su.iho.tbc2wallet.data.UserRuleEntity
+import su.iho.tbc2wallet.sync.SyncWorker
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter

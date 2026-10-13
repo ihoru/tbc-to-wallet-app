@@ -7,7 +7,7 @@ plugins {
 }
 
 android {
-    namespace = "app.tbcwallet"
+    namespace = "su.iho.tbc2wallet"
     compileSdk = 35
 
     defaultConfig {

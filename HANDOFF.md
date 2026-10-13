@@ -32,7 +32,7 @@ A personal, sideloaded Android app that:
 
 ## Layout
 ```
-app/src/main/java/app/tbcwallet/
+app/src/main/java/su/iho/tbc2wallet/
   parse/TbcNotificationParser.kt   pure Kotlin, unit-tested
   categorize/CategoryResolver.kt   priority chain + PayeeLearner (history → map)
   ingest/TbcNotificationListener.kt  listener + Ingest (dedup key, timezone) 

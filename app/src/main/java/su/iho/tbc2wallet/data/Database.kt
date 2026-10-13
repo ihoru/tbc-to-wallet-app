@@ -1,4 +1,4 @@
-package app.tbcwallet.data
+package su.iho.tbc2wallet.data
 
 import android.content.Context
 import androidx.room.Dao
