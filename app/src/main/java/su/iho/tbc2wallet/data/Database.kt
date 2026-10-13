@@ -108,6 +108,9 @@ abstract class AppDao {
     @Query("SELECT dedupKey, walletRecordId, categoryId FROM transactions WHERE walletRecordId IS NOT NULL")
     abstract suspend fun sentAssignments(): List<SentAssignment>
 
+    @Query("SELECT walletRecordId FROM transactions WHERE isFake = 1 AND walletRecordId IS NOT NULL")
+    abstract suspend fun fakeWalletRecordIds(): List<String>
+
     @Upsert abstract suspend fun upsertTx(tx: TransactionEntity)
 
     @Query("UPDATE transactions SET status = :status, error = NULL WHERE dedupKey = :key")

@@ -64,7 +64,9 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         if (queue.isEmpty()) { note("Up to date"); return }
 
         val resolver = buildResolver()
-        val fakeLabel = if (queue.any { it.isFake }) fakeLabelId(api) else null
+        // Only look the label up when a fake record can actually be sent this run.
+        val sendableFake = queue.any { tx -> tx.isFake && tx.currency?.let { settings.accountFor(it) } != null }
+        val fakeLabel = if (sendableFake) fakeLabelId(api) else null
         val missingAccounts = mutableSetOf<String>()
         val ready = mutableListOf<Pair<TransactionEntity, WalletApi.NewRecord>>()
 

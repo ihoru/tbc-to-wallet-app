@@ -52,7 +52,9 @@ class Catalog(private val context: Context) {
             if (unknown.isNotEmpty()) settings.unknownCategoryIds = unknown
         }
 
-        val history = api.records(from).map {
+        // Simulated records must never teach the payee map.
+        val fakeIds = dao.fakeWalletRecordIds().toSet()
+        val history = api.records(from).filter { it.id !in fakeIds }.map {
             PayeeLearner.HistoryRecord(it.id, it.counterParty, it.category?.id, it.category?.name)
         }
         val assignedByApp = dao.sentAssignments()
