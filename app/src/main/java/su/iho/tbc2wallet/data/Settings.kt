@@ -52,6 +52,14 @@ class Settings(context: Context) {
         get() = prefs.getStringSet("unknown_category_ids", emptySet()) ?: emptySet()
         set(value) = prefs.edit().putStringSet("unknown_category_ids", value).apply()
 
+    /** The "fake" label this app created last, and when; covers Wallet's listing lag. */
+    var recentFakeLabel: Pair<String, Long>?
+        get() = prefs.getString("recent_fake_label_id", null)?.let { it to prefs.getLong("recent_fake_label_at", 0) }
+        set(value) = prefs.edit().apply {
+            if (value == null) remove("recent_fake_label_id").remove("recent_fake_label_at")
+            else putString("recent_fake_label_id", value.first).putLong("recent_fake_label_at", value.second)
+        }.apply()
+
     var lastSyncMessage: String?
         get() = prefs.getString("last_sync_message", null)
         set(value) = prefs.edit().putString("last_sync_message", value).apply()

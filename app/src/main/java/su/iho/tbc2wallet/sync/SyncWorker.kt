@@ -139,8 +139,12 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
             Log.w(TAG, "listing labels failed", e); return null
         }
         labels.firstOrNull { !it.archived && it.name.equals(FAKE_LABEL, true) }?.let { return it.id }
+        // A label created in the last few minutes may not be listed yet; reuse it, don't duplicate it.
+        settings.recentFakeLabel?.let { (id, at) ->
+            if (System.currentTimeMillis() - at < RECENT_LABEL_MS) return id
+        }
         return try {
-            api.createLabel(FAKE_LABEL)
+            api.createLabel(FAKE_LABEL)?.also { settings.recentFakeLabel = it to System.currentTimeMillis() }
         } catch (e: WalletApi.ApiException.Http) {
             if (e.code >= 500) throw e
             Log.w(TAG, "creating label failed", e); null
@@ -169,6 +173,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         private const val TAG = "SyncWorker"
         const val FAKE_LABEL = "fake"
         const val FAKE_NOTE_MARKER = "[fake]"
+        private const val RECENT_LABEL_MS = 15 * 60 * 1000L
         private val network = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
 
         fun enqueue(context: Context) {
