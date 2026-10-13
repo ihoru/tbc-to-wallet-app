@@ -98,12 +98,11 @@ class WalletApi(private val token: String) {
     }
 
     /**
-     * Creates a label and returns its id. The public docs don't promise label creation, so this
-     * tries the usual shape and reads the id from either a plain object or a batch envelope;
-     * callers should treat any failure as "not supported".
+     * Creates a label and returns its id. Single-item create endpoints take one object; the id is
+     * read from either a plain object or a batch envelope. Callers treat any failure as "not supported".
      */
     suspend fun createLabel(name: String): String? {
-        val body = json.encodeToString(listOf(mapOf("name" to name))).toRequestBody(JSON)
+        val body = json.encodeToString(mapOf("name" to name)).toRequestBody(JSON)
         val request = Request.Builder().url(url("labels")).post(body).auth().build()
         return execute(request, acceptedCodes = setOf(200, 201, 207)) { text ->
             val root = json.parseToJsonElement(text)

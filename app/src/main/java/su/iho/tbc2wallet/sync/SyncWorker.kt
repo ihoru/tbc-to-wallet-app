@@ -98,29 +98,38 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
 
         var failed = 0
         var lastError = ""
-        for (chunk in ready.chunked(20)) {
-            val results = api.createRecords(chunk.map { it.second }).associateBy { it.inputIndex }
-            chunk.forEachIndexed { i, (tx, _) ->
-                val r = results[i]
-                when {
-                    r?.success == true -> dao.upsertTx(tx.copy(status = TxStatus.SENT, walletRecordId = r.id, error = null))
-                    r?.errorType == "client_error" -> {
-                        failed++; lastError = r.error.orEmpty()
-                        // The cached label may have been deleted in Wallet; look it up again next time.
-                        if (tx.isFake) settings.fakeLabelId = null
-                        dao.upsertTx(tx.copy(status = TxStatus.FAILED, error = r.error))
+        // Fake records rejected while carrying the label are sent once more without it, in case
+        // the cached label was deleted in Wallet; the cache is cleared so the next run looks it up.
+        val retryWithoutLabel = mutableListOf<Pair<TransactionEntity, WalletApi.NewRecord>>()
+        suspend fun send(batch: List<Pair<TransactionEntity, WalletApi.NewRecord>>, allowLabelRetry: Boolean) {
+            for (chunk in batch.chunked(20)) {
+                val results = api.createRecords(chunk.map { it.second }).associateBy { it.inputIndex }
+                chunk.forEachIndexed { i, (tx, record) ->
+                    val r = results[i]
+                    when {
+                        r?.success == true -> dao.upsertTx(tx.copy(status = TxStatus.SENT, walletRecordId = r.id, error = null))
+                        r?.errorType == "client_error" && allowLabelRetry && record.labelIds != null -> {
+                            settings.fakeLabelId = null
+                            retryWithoutLabel += tx to record.copy(labelIds = null)
+                        }
+                        r?.errorType == "client_error" -> {
+                            failed++; lastError = r.error.orEmpty()
+                            dao.upsertTx(tx.copy(status = TxStatus.FAILED, error = r.error))
+                        }
+                        // server_error or missing result: keep it queued for the next run
+                        else -> dao.upsertTx(tx.copy(status = TxStatus.PENDING, error = r?.error ?: "No result from Wallet"))
                     }
-                    // server_error or missing result: keep it queued for the next run
-                    else -> dao.upsertTx(tx.copy(status = TxStatus.PENDING, error = r?.error ?: "No result from Wallet"))
                 }
             }
         }
+        send(ready, allowLabelRetry = true)
+        if (retryWithoutLabel.isNotEmpty()) send(retryWithoutLabel, allowLabelRetry = false)
 
         if (missingAccounts.isNotEmpty()) Notifier.needsAccount(applicationContext, missingAccounts)
         if (failed > 0) Notifier.failed(applicationContext, failed, lastError)
         note("Sent ${ready.size - failed}, failed $failed" +
             (if (missingAccounts.isNotEmpty()) ", waiting for account: ${missingAccounts.joinToString()}" else "") +
-            (if (ready.any { it.first.isFake } && fakeLabel == null)
+            (if (ready.any { it.first.isFake } && (fakeLabel == null || retryWithoutLabel.isNotEmpty()))
                 ". Couldn't find or create the \"$FAKE_LABEL\" label in Wallet, so fake records are marked in the note only" else ""))
     }
 
