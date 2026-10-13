@@ -125,7 +125,7 @@ private enum class Tab(val label: String) { ACTIVITY("Activity"), RULES("Rules")
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun App(vm: MainViewModel) {
+internal fun App(vm: MainViewModel) { // internal for the screenshot tests
     var tab by rememberSaveable { mutableStateOf(if (vm.settings.hasToken) Tab.ACTIVITY else Tab.SETTINGS) }
     var ruleDraft by remember { mutableStateOf<UserRuleEntity?>(null) } // non-null = rule dialog open; id 0 = new rule
     val snackbar = remember { SnackbarHostState() }
@@ -256,7 +256,11 @@ private fun RulesScreen(vm: MainViewModel, onEdit: (UserRuleEntity) -> Unit) {
     var learnedOpen by rememberSaveable { mutableStateOf(false) }
     val clashes = remember(rules) { RuleClashes.find(rules.sortedBy { it.id }) { it.toUserRule() } }
     val clashing = remember(clashes) { clashes.flatMap { listOf(it.first.id, it.second.id) }.toSet() }
-    LazyColumn(contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    // Extra bottom space so the + button never covers the last row.
+    LazyColumn(
+        contentPadding = PaddingValues(start = 12.dp, top = 12.dp, end = 12.dp, bottom = 88.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
         item {
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -331,12 +335,26 @@ private fun RuleRow(rule: UserRuleEntity, clashing: Boolean, onEdit: () -> Unit,
 
 private fun ruleSummary(rule: UserRuleEntity): String {
     val how = if (rule.matchType == "EXACT") "is" else "contains"
-    return "payee $how “${rule.pattern}”"
+    val scope = when (rule.appliesTo) { "EXPENSE" -> " for expenses"; "INCOME" -> " for income"; else -> "" }
+    return "payee $how “${rule.pattern}”$scope"
 }
 
 private fun ruleTarget(rule: UserRuleEntity) = rule.transferAccountName?.let { "Transfer with $it" } ?: rule.categoryName
 
 private fun ruleOutcome(rule: UserRuleEntity) = ruleTarget(rule) + rule.labelNameList.joinToString("") { " #$it" }
+
+/**
+ * Short name for a rule on a clash button. Adds "exact" and the scope when set, and the category
+ * if that's still not enough, so the two buttons never read the same.
+ */
+private fun clashButtonName(rule: UserRuleEntity, other: UserRuleEntity): String {
+    fun base(r: UserRuleEntity) = "“${r.pattern}”" + listOfNotNull(
+        "exact".takeIf { r.matchType == "EXACT" },
+        when (r.appliesTo) { "EXPENSE" -> "expenses"; "INCOME" -> "income"; else -> null },
+    ).takeIf { it.isNotEmpty() }?.joinToString(prefix = " (", postfix = ")").orEmpty()
+    val name = base(rule)
+    return if (name.equals(base(other), ignoreCase = true)) "$name → ${ruleTarget(rule)}" else name
+}
 
 /** Two rules that can match the same payee but disagree; only [RuleClash.winner] is applied. */
 @OptIn(ExperimentalLayoutApi::class)
@@ -358,10 +376,10 @@ private fun ClashCard(clash: RuleClash<UserRuleEntity>, onKeep: (UserRuleEntity)
                 "A payee matching both gets ${ruleOutcome(clash.winner)}, from the rule where ${ruleSummary(clash.winner)}.",
                 style = MaterialTheme.typography.bodySmall,
             )
-            FlowRow {
-                for (rule in listOf(a, b)) {
-                    TextButton(onClick = { onKeep(rule) }) { Text("Keep only “${rule.pattern}”") }
-                    TextButton(onClick = { onEdit(rule) }) { Text("Edit “${rule.pattern}”") }
+            for (rule in listOf(a, b)) {
+                FlowRow {
+                    TextButton(onClick = { onKeep(rule) }) { Text("Keep only ${clashButtonName(rule, other = if (rule == a) b else a)}") }
+                    TextButton(onClick = { onEdit(rule) }) { Text("Edit") }
                 }
             }
         }

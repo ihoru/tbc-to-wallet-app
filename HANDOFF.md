@@ -127,6 +127,12 @@ outgoing transfers yet. Anything it can't read is stored as UNPARSED and shown f
 - **Scope.** Personal use only; it will not be published to Play (notification-access and
   financial-data review would apply).
 
+## Screenshots
+UI changes get screenshots in the PR. `app/src/test/.../screenshots/` renders real screens with
+Robolectric + Roborazzi from seeded sample data; it is skipped in normal test runs. Record with
+`./gradlew :app:testDebugUnitTest -Pscreenshots --tests '*screenshots*'`; PNGs land in
+`app/build/outputs/roborazzi/`. Copies used in PR descriptions live in `docs/screenshots/`.
+
 ## Known gaps and ideas
 - **Possible duplicate on retry.** If the network drops after Wallet commits but before the
   response arrives, the retry creates a duplicate. Fix: before re-sending, query

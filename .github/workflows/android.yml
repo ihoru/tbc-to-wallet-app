@@ -26,10 +26,3 @@ jobs:
         with:
           name: app-debug
           path: app/build/outputs/apk/debug/app-debug.apk
-      - name: Upload screenshots
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: screenshots
-          path: app/build/screenshots/
-          if-no-files-found: ignore

@@ -1,17 +1,18 @@
-package su.iho.tbc2wallet
+package su.iho.tbc2wallet.screenshots
 
 import android.app.Application
 import android.content.Context
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.lightColorScheme
+import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
-import androidx.compose.ui.test.onFirst
-import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.core.app.ApplicationProvider
 import com.github.takahirom.roborazzi.captureScreenRoboImage
 import kotlinx.coroutines.runBlocking
+import kotlin.concurrent.thread
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -19,7 +20,8 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
-import org.robolectric.shadows.ShadowLooper
+import su.iho.tbc2wallet.App
+import su.iho.tbc2wallet.MainViewModel
 import su.iho.tbc2wallet.data.AccountEntity
 import su.iho.tbc2wallet.data.AppDatabase
 import su.iho.tbc2wallet.data.CategoryEntity
@@ -28,37 +30,33 @@ import su.iho.tbc2wallet.data.TxStatus
 import su.iho.tbc2wallet.data.UserRuleEntity
 import su.iho.tbc2wallet.sync.SyncWorker
 
-/**
- * Renders the real screens with sample data and saves PNGs to app/build/screenshots,
- * so UI changes can be shown without a phone. CI uploads them as the "screenshots" artifact.
- */
+/** Transfer rules on the Activity and Rules tabs and in the rule dialog, for screenshots in PRs. Run with -Pscreenshots. */
+@OptIn(ExperimentalTestApi::class)
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
-@Config(sdk = [34], qualifiers = "w400dp-h860dp-xhdpi")
-class ScreenshotTest {
+@Config(sdk = [35], qualifiers = "w400dp-h860dp-xhdpi")
+class TransferRuleScreenshots {
     @get:Rule val compose = createComposeRule()
 
     private val app = ApplicationProvider.getApplicationContext<Application>()
+    private val out = "build/outputs/roborazzi"
 
     @Before fun seed() = runBlocking {
-        // Each test gets a fresh app, so drop the database bound to the previous one.
-        AppDatabase::class.java.getDeclaredField("instance").apply { isAccessible = true }.set(null, null)
         // Any stored token opens the app on Activity; it's never decrypted here.
-        app.getSharedPreferences("settings", Context.MODE_PRIVATE).edit()
-            .putString("wallet_token_enc", "sample").commit()
-        val dao = AppDatabase.get(app).dao()
+        app.getSharedPreferences("settings", Context.MODE_PRIVATE).edit().putString("wallet_token_enc", "sample").commit()
+        val db = AppDatabase.get(app)
+        // The database instance outlives a single test, so start each one empty (not allowed on the main thread).
+        thread { db.clearAllTables() }.join()
+        val dao = db.dao()
         dao.replaceAccounts(listOf(
             AccountEntity("acc-gel", "TBC card", "GEL", false),
             AccountEntity("acc-usd", "Cash USD", "USD", false),
             AccountEntity("acc-eur", "Revolut", "EUR", false),
         ))
-        dao.replaceCategories(listOf(
-            CategoryEntity("cat-groceries", "Groceries", "Food & Drinks"),
-            CategoryEntity("cat-gym", "Active sport, fitness", "Life & Entertainment"),
-        ))
+        dao.replaceCategories(listOf(CategoryEntity("groceries", "Groceries", "Food & Drinks")))
         dao.insertUserRule(UserRuleEntity(
             pattern = "Shopsy", matchType = "CONTAINS", appliesTo = "EXPENSE",
-            categoryId = "cat-groceries", categoryName = "Food & Drinks › Groceries",
+            categoryId = "groceries", categoryName = "Food & Drinks › Groceries",
         ))
         dao.insertUserRule(UserRuleEntity(
             pattern = "John Smith", matchType = "EXACT", appliesTo = "INCOME", categoryId = "", categoryName = "",
@@ -74,45 +72,44 @@ class ScreenshotTest {
         dao.insertIfNew(TransactionEntity(
             dedupKey = "t2", kind = "EXPENSE", amount = "42.10", currency = "GEL", counterParty = "Shopsy",
             accountLabel = "TBC CARD VISA GOLD (***1234)", cardLast4 = "1234", recordDateUtc = "2026-09-29T19:28:00Z",
-            rawText = "", status = TxStatus.SENT, walletRecordId = "r2", categoryId = "cat-groceries",
+            rawText = "", status = TxStatus.SENT, walletRecordId = "r2", categoryId = "groceries",
             categorySource = "USER_RULE", categoryName = "Food & Drinks › Groceries", receivedAt = now - 1,
         ))
         Unit
     }
 
-    @Test fun activityAndRules() {
-        start()
-        shot("activity")
-        compose.onNodeWithText("Rules").performClick()
-        settle()
-        shot("rules")
+    private fun showApp() {
+        compose.setContent { MaterialTheme(colorScheme = lightColorScheme()) { App(MainViewModel(app)) } }
+        compose.waitUntilAtLeastOneExists(hasText("Transfer from Revolut", substring = true), 5_000)
     }
 
-    @Test fun categoryRuleDialog() = ruleDialog("Shopsy", "rule-dialog-category")
-
-    @Test fun transferRuleDialog() = ruleDialog("John Smith", "rule-dialog-transfer")
-
-    private fun ruleDialog(payee: String, name: String) {
-        start()
+    private fun showRules() {
+        showApp()
         compose.onNodeWithText("Rules").performClick()
-        settle()
-        compose.onAllNodesWithText(payee, substring = true).onFirst().performClick()
-        // Under Robolectric an open dialog never reports idle, so only run frames from here on.
-        repeat(10) { compose.mainClock.advanceTimeBy(100); ShadowLooper.idleMainLooper() }
-        shot(name)
+        compose.waitUntilAtLeastOneExists(hasText("→ Transfer with Revolut"), 5_000)
     }
 
-    private fun start() {
-        val vm = MainViewModel(app)
-        // Drive the clock by hand so nothing animated keeps Compose from ever being idle.
+    @Test fun activityTab() {
+        showApp()
+        captureScreenRoboImage("$out/activity-transfer.png")
+    }
+
+    @Test fun rulesTab() {
+        showRules()
+        captureScreenRoboImage("$out/rules-transfer.png")
+    }
+
+    @Test fun transferRuleDialog() = openRule("Payee is “John Smith” · income", "rule-dialog-transfer.png")
+
+    @Test fun categoryRuleDialog() = openRule("Payee contains “Shopsy” · expenses", "rule-dialog-category.png")
+
+    private fun openRule(row: String, file: String) {
+        showRules()
+        // With the whole app on screen, opening the dialog never reports idle under Robolectric,
+        // so drive the clock by hand from here.
         compose.mainClock.autoAdvance = false
-        compose.setContent { MaterialTheme(colorScheme = lightColorScheme()) { App(vm) } }
-        settle()
+        compose.onNodeWithText(row).performClick()
+        compose.mainClock.advanceTimeBy(2_000)
+        captureScreenRoboImage("$out/$file")
     }
-
-    private fun settle() {
-        repeat(5) { compose.mainClock.advanceTimeBy(500); compose.waitForIdle() }
-    }
-
-    private fun shot(name: String) = captureScreenRoboImage("build/screenshots/$name.png")
 }
