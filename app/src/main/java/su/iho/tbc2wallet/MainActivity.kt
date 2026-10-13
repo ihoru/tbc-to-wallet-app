@@ -466,7 +466,8 @@ private fun RuleDialog(vm: MainViewModel, initial: UserRuleEntity, onDismiss: ()
                     }
                 }
                 if (asTransfer) {
-                    TransferAccountPicker(accounts, transferAccount) { transferAccount = it }
+                    // Wallet creates the other side of the transfer there, which it won't do in a bank-synced account.
+                    TransferAccountPicker(accounts.filterNot { it.isBankSync }, transferAccount) { transferAccount = it }
                     Text(
                         "An expense becomes a transfer to this account, income a transfer from it.",
                         style = MaterialTheme.typography.bodySmall,
@@ -630,7 +631,7 @@ private fun AccountPicker(currency: String, options: List<AccountEntity>, select
     }
 }
 
-/** Any Wallet account, for the other side of a transfer. [selected] is (id, name). */
+/** A Wallet account for the other side of a transfer. [selected] is (id, name). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun TransferAccountPicker(
@@ -647,7 +648,7 @@ private fun TransferAccountPicker(
         )
         ExposedDropdownMenu(expanded, { expanded = false }) {
             if (options.isEmpty()) DropdownMenuItem(
-                text = { Text("No accounts loaded. Add your token in Settings and tap Refresh.") },
+                text = { Text("No manual accounts loaded. Add your token in Settings and tap Refresh.") },
                 onClick = { expanded = false },
             )
             options.forEach { acc ->
