@@ -50,7 +50,7 @@ class Settings(context: Context) {
     private fun moveMappingOutOfSettings() {
         val old = prefs.all.filterKeys { it.startsWith("account_") || it == "seen_currencies" }
         if (old.isEmpty()) return
-        mapping.edit().apply {
+        val copied = mapping.edit().apply {
             old.forEach { (k, v) ->
                 @Suppress("UNCHECKED_CAST")
                 when (v) {
@@ -59,7 +59,7 @@ class Settings(context: Context) {
                 }
             }
         }.commit()
-        prefs.edit().apply { old.keys.forEach(::remove) }.apply()
+        if (copied) prefs.edit().apply { old.keys.forEach(::remove) }.apply()   // else retry next time
     }
 
     var lastCatalogRefresh: Long

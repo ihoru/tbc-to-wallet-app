@@ -40,8 +40,11 @@ class RulesBackup(context: Context) {
         override fun onOpen(db: SupportSQLiteDatabase) { save(db) }
     }
 
-    /** Re-saves the snapshot whenever rules change, whichever code path changed them. */
-    fun watch(database: RoomDatabase) {
+    /**
+     * Re-saves the snapshot whenever rules change, whichever code path changed them.
+     * Registered off the calling thread: addObserver may open the database, and the first caller is often the UI.
+     */
+    fun watch(database: RoomDatabase) = database.queryExecutor.execute {
         database.invalidationTracker.addObserver(object : InvalidationTracker.Observer(TABLE) {
             override fun onInvalidated(tables: Set<String>) { save(database.openHelper.readableDatabase) }
         })
