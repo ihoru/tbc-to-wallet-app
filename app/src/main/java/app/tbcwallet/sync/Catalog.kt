@@ -1,0 +1,73 @@
+package app.tbcwallet.sync
+
+import android.content.Context
+import app.tbcwallet.api.WalletApi
+import app.tbcwallet.categorize.PayeeLearner
+import app.tbcwallet.data.AccountEntity
+import app.tbcwallet.data.AppDatabase
+import app.tbcwallet.data.CategoryEntity
+import app.tbcwallet.data.LearnedEntity
+import app.tbcwallet.data.Settings
+import app.tbcwallet.data.WalletRuleEntity
+import java.time.LocalDate
+
+/**
+ * Pulls reference data from Wallet: accounts, categories, Wallet's own record rules,
+ * and your categorization history (for the learned payee map).
+ * Kept infrequent because the API allows ~300 requests/hour.
+ */
+class Catalog(private val context: Context) {
+    private val dao = AppDatabase.get(context).dao()
+    private val settings = Settings(context)
+
+    /** Accounts + categories + Wallet rules: 3–5 requests. */
+    suspend fun refreshCatalog(api: WalletApi) {
+        dao.replaceAccounts(api.accounts().filterNot { it.archived }.map {
+            AccountEntity(it.id, it.name, it.currencyCode, it.isBankSync)
+        })
+        dao.replaceCategories(api.categories().filter { !it.archived && it.enabled }.map {
+            CategoryEntity(it.id, it.name, it.parentName)
+        })
+        dao.replaceWalletRules(api.recordRules().mapNotNull { rule ->
+            val catId = rule.category?.id ?: return@mapNotNull null
+            WalletRuleEntity(
+                id = rule.id,
+                keywords = rule.keywords.joinToString("\n"),
+                categoryId = catId,
+                categoryName = rule.category?.name ?: rule.name,
+                fromAccountId = rule.fromAccountId,
+            )
+        })
+        settings.lastCatalogRefresh = System.currentTimeMillis()
+    }
+
+    /** Your last 12 months of records: usually 2–10 requests. */
+    suspend fun refreshLearned(api: WalletApi) {
+        val from = LocalDate.now().minusMonths(12).toString()
+
+        // Find Wallet's "unknown" category ids once (the API expands categoryId=unknown for us).
+        if (settings.unknownCategoryIds.isEmpty()) {
+            val unknown = api.records(from, categoryId = "unknown", maxPages = 1)
+                .mapNotNull { it.category?.id }.toSet()
+            if (unknown.isNotEmpty()) settings.unknownCategoryIds = unknown
+        }
+
+        val history = api.records(from).map {
+            PayeeLearner.HistoryRecord(it.id, it.counterParty, it.category?.id, it.category?.name)
+        }
+        val assignedByApp = dao.sentAssignments()
+            .mapNotNull { a -> a.walletRecordId?.let { it to a.categoryId } }
+            .toMap()
+
+        val learned = PayeeLearner.learn(history, settings.unknownCategoryIds, assignedByApp)
+        dao.replaceLearned(learned.values.map {
+            LearnedEntity(it.payeeKey, it.categoryId, it.categoryName, it.votes, it.totalVotes)
+        })
+        settings.lastLearnRefresh = System.currentTimeMillis()
+    }
+
+    fun catalogStale() = System.currentTimeMillis() - settings.lastCatalogRefresh > DAY_MS
+    fun learnedStale() = System.currentTimeMillis() - settings.lastLearnRefresh > 7 * DAY_MS
+
+    private companion object { const val DAY_MS = 24 * 60 * 60 * 1000L }
+}
