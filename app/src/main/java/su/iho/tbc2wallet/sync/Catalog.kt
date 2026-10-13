@@ -52,11 +52,12 @@ class Catalog(private val context: Context) {
             if (unknown.isNotEmpty()) settings.unknownCategoryIds = unknown
         }
 
-        // Simulated records must never teach the payee map.
+        // Simulated records must never teach the payee map. The note marker also catches fakes
+        // whose Wallet id never reached this device (lost response, reinstall).
         val fakeIds = dao.fakeWalletRecordIds().toSet()
-        val history = api.records(from).filter { it.id !in fakeIds }.map {
-            PayeeLearner.HistoryRecord(it.id, it.counterParty, it.category?.id, it.category?.name)
-        }
+        val history = api.records(from)
+            .filter { it.id !in fakeIds && it.note?.startsWith(SyncWorker.FAKE_NOTE_MARKER) != true }
+            .map { PayeeLearner.HistoryRecord(it.id, it.counterParty, it.category?.id, it.category?.name) }
         val assignedByApp = dao.sentAssignments()
             .mapNotNull { a -> a.walletRecordId?.let { it to a.categoryId } }
             .toMap()

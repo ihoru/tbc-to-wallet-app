@@ -88,7 +88,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
                 categoryId = decision.categoryId,
                 counterParty = tx.counterParty,
                 note = (tx.cardLast4?.let { "TBC ***$it" } ?: tx.accountLabel)
-                    .let { if (tx.isFake) listOfNotNull("[fake]", it).joinToString(" ") else it },
+                    .let { if (tx.isFake) listOfNotNull(FAKE_NOTE_MARKER, it).joinToString(" ") else it },
                 labelIds = if (tx.isFake) fakeLabel?.let { listOf(it) } else null,
             )
             ready += tx.copy(
@@ -168,6 +168,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
     companion object {
         private const val TAG = "SyncWorker"
         const val FAKE_LABEL = "fake"
+        const val FAKE_NOTE_MARKER = "[fake]"
         private val network = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
 
         fun enqueue(context: Context) {
