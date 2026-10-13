@@ -60,6 +60,8 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -123,7 +125,7 @@ private enum class Tab(val label: String) { ACTIVITY("Activity"), RULES("Rules")
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun App(vm: MainViewModel) {
+internal fun App(vm: MainViewModel) {
     var tab by rememberSaveable { mutableStateOf(if (vm.settings.hasToken) Tab.ACTIVITY else Tab.SETTINGS) }
     var ruleDraft by remember { mutableStateOf<UserRuleEntity?>(null) } // non-null = rule dialog open; id 0 = new rule
     val snackbar = remember { SnackbarHostState() }
@@ -450,6 +452,8 @@ private fun RuleDialog(vm: MainViewModel, initial: UserRuleEntity, onDismiss: ()
                     Text(
                         "An expense becomes a transfer to this account, income a transfer from it.",
                         style = MaterialTheme.typography.bodySmall,
+                        // As wide as the field above; a long line would otherwise widen the whole dialog.
+                        modifier = Modifier.widthIn(max = OutlinedTextFieldDefaults.MinWidth),
                     )
                 } else if (categories.isEmpty() && selected == null) {
                     Text("No categories loaded. Add your token in Settings and tap Refresh.", color = MaterialTheme.colorScheme.error)
@@ -619,7 +623,8 @@ private fun TransferAccountPicker(
             value = selected?.second ?: "Choose account", onValueChange = {}, readOnly = true,
             label = { Text("Other account") },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
-            modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable).fillMaxWidth(),
+            // Default text field width, like the dialog's other fields, so switching modes doesn't resize it.
+            modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable),
         )
         ExposedDropdownMenu(expanded, { expanded = false }) {
             if (options.isEmpty()) DropdownMenuItem(
