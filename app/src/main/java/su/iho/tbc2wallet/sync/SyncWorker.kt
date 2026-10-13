@@ -139,10 +139,13 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
      */
     private suspend fun fakeLabelId(api: WalletApi): String? {
         settings.fakeLabelId?.let { return it }
-        val id = runCatching { api.labels().firstOrNull { !it.archived && it.name.equals(FAKE_LABEL, true) }?.id }
-            .onFailure { Log.w(TAG, "listing labels failed", it) }.getOrNull()
-            ?: runCatching { api.createLabel(FAKE_LABEL) }
-                .onFailure { Log.w(TAG, "creating label failed", it) }.getOrNull()
+        // Only an HTTP error (endpoint missing or request refused) falls back to note-only. Rate
+        // limits, auth and network errors propagate so the worker backs off as for any other call.
+        suspend fun <T> orNullOnHttpError(what: String, block: suspend () -> T): T? =
+            try { block() } catch (e: WalletApi.ApiException.Http) { Log.w(TAG, "$what failed", e); null }
+        val id = orNullOnHttpError("listing labels") {
+            api.labels().firstOrNull { !it.archived && it.name.equals(FAKE_LABEL, true) }?.id
+        } ?: orNullOnHttpError("creating label") { api.createLabel(FAKE_LABEL) }
         settings.fakeLabelId = id
         return id
     }
