@@ -147,5 +147,7 @@ class CategoryTreeTest {
         assertEquals(listOf("Restaurant"), f[0].children.map { it.name })
         assertEquals(2, CategoryTree.filter(tree, "food")[0].children.size)
         assertEquals(tree, CategoryTree.filter(tree, "  "))
+        // editing a picked "Parent › Child" value keeps that child listed
+        assertEquals(listOf("Restaurant"), CategoryTree.filter(tree, "Food & Drinks › Restauran")[0].children.map { it.name })
     }
 }

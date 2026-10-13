@@ -1,6 +1,7 @@
 package su.iho.tbc2wallet.categorize
 
 import su.iho.tbc2wallet.data.CategoryEntity
+import su.iho.tbc2wallet.data.displayName
 
 /**
  * A top-level Wallet category and its subcategories.
@@ -31,14 +32,15 @@ object CategoryTree {
 
     /**
      * Keeps parents whose name matches [query] with all their children,
-     * and otherwise only the children that match, under their parent.
+     * and otherwise only the children that match, under their parent. Children match on
+     * their full "Parent › Child" name too, which is what the field shows once one is picked.
      */
     fun filter(tree: List<CategoryNode>, query: String): List<CategoryNode> {
         val q = query.trim()
         if (q.isEmpty()) return tree
         return tree.mapNotNull { node ->
             if (node.name.contains(q, ignoreCase = true)) node
-            else node.children.filter { it.name.contains(q, ignoreCase = true) }
+            else node.children.filter { it.displayName.contains(q, ignoreCase = true) }
                 .takeIf { it.isNotEmpty() }
                 ?.let { node.copy(children = it) }
         }
