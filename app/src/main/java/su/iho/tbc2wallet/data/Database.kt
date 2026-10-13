@@ -13,6 +13,8 @@ import androidx.room.RoomDatabase
 import androidx.room.Transaction
 import androidx.room.Update
 import androidx.room.Upsert
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
 
 enum class TxStatus {
@@ -52,7 +54,12 @@ data class UserRuleEntity(
     val appliesTo: String,   // ANY / EXPENSE / INCOME
     val categoryId: String,
     val categoryName: String,
+    val labelIds: String = "",     // Wallet label ids, joined with \n
+    val labelNames: String = "",   // their names at the time, same order
 )
+
+val UserRuleEntity.labelIdList: List<String> get() = labelIds.split("\n").filter { it.isNotBlank() }
+val UserRuleEntity.labelNameList: List<String> get() = labelNames.split("\n").filter { it.isNotBlank() }
 
 @Entity(tableName = "wallet_rules")
 data class WalletRuleEntity(
@@ -81,6 +88,12 @@ data class CategoryEntity(
 
 val CategoryEntity.displayName: String
     get() = if (parentName.isNullOrBlank()) name else "$parentName › $name"
+
+@Entity(tableName = "labels")
+data class LabelEntity(
+    @PrimaryKey val id: String,
+    val name: String,
+)
 
 @Entity(tableName = "accounts")
 data class AccountEntity(
@@ -138,6 +151,11 @@ abstract class AppDao {
     @Insert abstract suspend fun insertCategories(items: List<CategoryEntity>)
     @Transaction open suspend fun replaceCategories(items: List<CategoryEntity>) { clearCategories(); insertCategories(items) }
 
+    @Query("SELECT * FROM labels ORDER BY name") abstract fun observeLabels(): Flow<List<LabelEntity>>
+    @Query("DELETE FROM labels") abstract suspend fun clearLabels()
+    @Insert abstract suspend fun insertLabels(items: List<LabelEntity>)
+    @Transaction open suspend fun replaceLabels(items: List<LabelEntity>) { clearLabels(); insertLabels(items) }
+
     @Query("SELECT * FROM accounts ORDER BY name") abstract fun observeAccounts(): Flow<List<AccountEntity>>
     @Query("DELETE FROM accounts") abstract suspend fun clearAccounts()
     @Insert abstract suspend fun insertAccounts(items: List<AccountEntity>)
@@ -149,9 +167,9 @@ data class SentAssignment(val dedupKey: String, val walletRecordId: String?, val
 @Database(
     entities = [
         TransactionEntity::class, UserRuleEntity::class, WalletRuleEntity::class,
-        LearnedEntity::class, CategoryEntity::class, AccountEntity::class,
+        LearnedEntity::class, CategoryEntity::class, AccountEntity::class, LabelEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -161,7 +179,17 @@ abstract class AppDatabase : RoomDatabase() {
         @Volatile private var instance: AppDatabase? = null
         fun get(context: Context): AppDatabase = instance ?: synchronized(this) {
             instance ?: Room.databaseBuilder(context.applicationContext, AppDatabase::class.java, "tbc2wallet.db")
+                .addMigrations(MIGRATION_1_2)
                 .build().also { instance = it }
+        }
+
+        /** Rules can set Wallet labels; labels are cached like categories. */
+        private val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE user_rules ADD COLUMN labelIds TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE user_rules ADD COLUMN labelNames TEXT NOT NULL DEFAULT ''")
+                db.execSQL("CREATE TABLE IF NOT EXISTS labels (id TEXT NOT NULL, name TEXT NOT NULL, PRIMARY KEY(id))")
+            }
         }
     }
 }

@@ -28,6 +28,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val transactions = dao.observeTransactions().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val userRules = dao.observeUserRules().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val categories = dao.observeCategories().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    val labels = dao.observeLabels().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val accounts = dao.observeAccounts().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val walletRuleCount = dao.observeWalletRuleCount().stateIn(viewModelScope, SharingStarted.Eagerly, 0)
     val learned = dao.observeLearned().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())

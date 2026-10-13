@@ -6,9 +6,11 @@ import su.iho.tbc2wallet.categorize.PayeeLearner
 import su.iho.tbc2wallet.data.AccountEntity
 import su.iho.tbc2wallet.data.AppDatabase
 import su.iho.tbc2wallet.data.CategoryEntity
+import su.iho.tbc2wallet.data.LabelEntity
 import su.iho.tbc2wallet.data.LearnedEntity
 import su.iho.tbc2wallet.data.Settings
 import su.iho.tbc2wallet.data.WalletRuleEntity
+import android.util.Log
 import java.time.LocalDate
 
 /**
@@ -38,6 +40,11 @@ class Catalog(private val context: Context) {
                 fromAccountId = rule.fromAccountId,
             )
         })
+        // The labels endpoint isn't in the documented API facts, so a failure here only leaves
+        // the rule dialog without labels to pick; it never blocks the rest of the catalog.
+        runCatching { api.labels() }
+            .onSuccess { labels -> dao.replaceLabels(labels.filterNot { it.archived }.map { LabelEntity(it.id, it.name) }) }
+            .onFailure { Log.w("Catalog", "labels not loaded", it) }
         settings.lastCatalogRefresh = System.currentTimeMillis()
     }
 

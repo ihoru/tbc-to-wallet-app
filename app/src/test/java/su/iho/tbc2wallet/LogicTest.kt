@@ -90,6 +90,15 @@ class ResolverTest {
         assertEquals(CategorySource.USER_RULE, r.resolve(TxKind.EXPENSE, "Shopsy", null).source)
     }
 
+    @Test fun userRuleCarriesItsLabels() {
+        val r = CategoryResolver(
+            listOf(UserRule("shopsy", MatchType.CONTAINS, AppliesTo.ANY, "cat-gifts", "Gifts", listOf("lbl-1", "lbl-2"))),
+            wallet, learned,
+        )
+        assertEquals(listOf("lbl-1", "lbl-2"), r.resolve(TxKind.EXPENSE, "Shopsy", null).labelIds)
+        assertEquals(emptyList<String>(), r.resolve(TxKind.EXPENSE, "CITY GYM", null).labelIds)
+    }
+
     @Test fun walletRuleBeatsLearned() {
         val d = CategoryResolver(emptyList(), wallet, learned).resolve(TxKind.EXPENSE, "Shopsy", null)
         assertEquals("cat-shopping", d.categoryId)

@@ -9,6 +9,8 @@ data class CategoryDecision(
     val categoryId: String?,
     val categoryName: String?,
     val source: CategorySource,
+    /** Wallet labels to put on the record; only your own rules set them. */
+    val labelIds: List<String> = emptyList(),
 )
 
 enum class MatchType { CONTAINS, EXACT }
@@ -21,6 +23,7 @@ data class UserRule(
     val appliesTo: AppliesTo,
     val categoryId: String,
     val categoryName: String,
+    val labelIds: List<String> = emptyList(),
 )
 
 /** A categorization rule defined in Wallet itself (GET /v1/api/record-rules). */
@@ -66,7 +69,7 @@ class CategoryResolver(
         if (payee.isEmpty()) return NONE
 
         userRules.firstOrNull { it.appliesTo(kind) && it.matches(payee) }?.let {
-            return CategoryDecision(it.categoryId, it.categoryName, CategorySource.USER_RULE)
+            return CategoryDecision(it.categoryId, it.categoryName, CategorySource.USER_RULE, it.labelIds)
         }
 
         walletRules.firstOrNull { rule ->

@@ -15,6 +15,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -87,6 +89,8 @@ import su.iho.tbc2wallet.categorize.CategoryResolver
 import su.iho.tbc2wallet.data.CategoryEntity
 import su.iho.tbc2wallet.data.LearnedEntity
 import su.iho.tbc2wallet.data.displayName
+import su.iho.tbc2wallet.data.labelIdList
+import su.iho.tbc2wallet.data.labelNameList
 import su.iho.tbc2wallet.data.TransactionEntity
 import su.iho.tbc2wallet.data.TxStatus
 import su.iho.tbc2wallet.data.UserRuleEntity
@@ -300,7 +304,8 @@ private fun RuleRow(rule: UserRuleEntity, onEdit: () -> Unit, onDelete: () -> Un
                 val how = if (rule.matchType == "EXACT") "is" else "contains"
                 val scope = when (rule.appliesTo) { "EXPENSE" -> " · expenses"; "INCOME" -> " · income"; else -> "" }
                 Text("Payee $how “${rule.pattern}”$scope", style = MaterialTheme.typography.bodyMedium)
-                Text("→ ${rule.categoryName}", style = MaterialTheme.typography.bodySmall)
+                val labels = rule.labelNameList.joinToString("") { " · #$it" }
+                Text("→ ${rule.categoryName}$labels", style = MaterialTheme.typography.bodySmall)
             }
             IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, "Delete rule") }
         }
@@ -323,9 +328,13 @@ private fun LearnedRow(entry: LearnedEntity, onClick: () -> Unit) {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun RuleDialog(vm: MainViewModel, initial: UserRuleEntity, onDismiss: () -> Unit) {
     val categories by vm.categories.collectAsState()
+    val labels by vm.labels.collectAsState()
+    // label id -> name; starts from the rule so its labels survive even if Wallet's list isn't loaded.
+    var chosenLabels by remember { mutableStateOf(initial.labelIdList.zip(initial.labelNameList).toMap()) }
     val editing = initial.id != 0L
     var pattern by remember { mutableStateOf(initial.pattern) }
     var matchType by remember { mutableStateOf(initial.matchType) }
@@ -349,6 +358,22 @@ private fun RuleDialog(vm: MainViewModel, initial: UserRuleEntity, onDismiss: ()
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     listOf("ANY" to "Any", "EXPENSE" to "Expenses", "INCOME" to "Income").forEach { (v, l) ->
                         FilterChip(appliesTo == v, { appliesTo = v }, label = { Text(l) })
+                    }
+                }
+                Text("Labels", style = MaterialTheme.typography.labelLarge)
+                // Labels on the rule that Wallet no longer lists still show, so they can be removed.
+                val shown = labels.map { it.id to it.name } + chosenLabels.filterKeys { id -> labels.none { it.id == id } }.toList()
+                if (shown.isEmpty()) {
+                    Text("No labels loaded from Wallet.", style = MaterialTheme.typography.bodySmall)
+                } else {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        shown.forEach { (id, name) ->
+                            FilterChip(
+                                selected = id in chosenLabels,
+                                onClick = { chosenLabels = if (id in chosenLabels) chosenLabels - id else chosenLabels + (id to name) },
+                                label = { Text(name) },
+                            )
+                        }
                     }
                 }
                 if (categories.isEmpty() && selected == null) {
@@ -381,6 +406,8 @@ private fun RuleDialog(vm: MainViewModel, initial: UserRuleEntity, onDismiss: ()
                     vm.saveRule(initial.copy(
                         pattern = pattern, matchType = matchType, appliesTo = appliesTo,
                         categoryId = selected!!.id, categoryName = selected!!.displayName,
+                        labelIds = chosenLabels.keys.joinToString("\n"),
+                        labelNames = chosenLabels.values.joinToString("\n"),
                     ))
                     onDismiss()
                 },

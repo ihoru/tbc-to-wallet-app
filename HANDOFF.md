@@ -101,6 +101,8 @@ outgoing transfers yet. Anything it can't read is stored as UNPARSED and shown f
 - `GET /v1/api/record-rules` returns `recordRules[]` with `keywords[]`, `category {id,name}` and
   `fromAccountId`.
 - `GET /v1/api/categories` returns `categories[]` with `id`, `name`, `parentName`, `archived`, `enabled`.
+- `GET /v1/api/labels` is assumed to return `labels[]` with `id`, `name`, `archived` (not checked against
+  the OpenAPI spec). The app caches them for the rule dialog; if the call fails, rules simply have no labels to pick.
 - `GET /v1/api/accounts` returns `accounts[]` with `id`, `name`, `currencyCode`, `isBankSync`, `archived`.
 - `PATCH /v1/api/records` takes up to 10 items, and `$clear` resets fields.
 - OpenAPI JSON: `https://rest.budgetbakers.com/wallet/openapi`. Reference: `/wallet/reference`.

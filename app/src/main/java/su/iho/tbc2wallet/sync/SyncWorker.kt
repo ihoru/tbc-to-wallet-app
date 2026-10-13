@@ -23,6 +23,7 @@ import su.iho.tbc2wallet.data.AppDatabase
 import su.iho.tbc2wallet.data.Settings
 import su.iho.tbc2wallet.data.TransactionEntity
 import su.iho.tbc2wallet.data.TxStatus
+import su.iho.tbc2wallet.data.labelIdList
 import su.iho.tbc2wallet.ingest.Notifier
 import su.iho.tbc2wallet.parse.TxKind
 import java.util.concurrent.TimeUnit
@@ -85,6 +86,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
                 categoryId = decision.categoryId,
                 counterParty = tx.counterParty,
                 note = tx.cardLast4?.let { "TBC ***$it" } ?: tx.accountLabel,
+                labelIds = decision.labelIds.ifEmpty { null },
             )
             ready += tx.copy(
                 categoryId = decision.categoryId,
@@ -119,7 +121,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
 
     private suspend fun buildResolver(): CategoryResolver {
         val userRules = dao.userRules().map {
-            UserRule(it.pattern, MatchType.valueOf(it.matchType), AppliesTo.valueOf(it.appliesTo), it.categoryId, it.categoryName)
+            UserRule(it.pattern, MatchType.valueOf(it.matchType), AppliesTo.valueOf(it.appliesTo), it.categoryId, it.categoryName, it.labelIdList)
         }
         val walletRules = dao.walletRules().map {
             WalletRule(it.keywords.split("\n"), it.categoryId, it.categoryName, it.fromAccountId)
