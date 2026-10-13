@@ -1,14 +1,14 @@
-package app.tbcwallet.sync
+package su.iho.tbc2wallet.sync
 
 import android.content.Context
-import app.tbcwallet.api.WalletApi
-import app.tbcwallet.categorize.PayeeLearner
-import app.tbcwallet.data.AccountEntity
-import app.tbcwallet.data.AppDatabase
-import app.tbcwallet.data.CategoryEntity
-import app.tbcwallet.data.LearnedEntity
-import app.tbcwallet.data.Settings
-import app.tbcwallet.data.WalletRuleEntity
+import su.iho.tbc2wallet.api.WalletApi
+import su.iho.tbc2wallet.categorize.PayeeLearner
+import su.iho.tbc2wallet.data.AccountEntity
+import su.iho.tbc2wallet.data.AppDatabase
+import su.iho.tbc2wallet.data.CategoryEntity
+import su.iho.tbc2wallet.data.LearnedEntity
+import su.iho.tbc2wallet.data.Settings
+import su.iho.tbc2wallet.data.WalletRuleEntity
 import java.time.LocalDate
 
 /**

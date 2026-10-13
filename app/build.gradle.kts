@@ -7,11 +7,11 @@ plugins {
 }
 
 android {
-    namespace = "app.tbcwallet"
+    namespace = "su.iho.tbc2wallet"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "app.tbcwallet"
+        applicationId = "su.iho.tbc2wallet"
         minSdk = 26
         targetSdk = 35
         versionCode = 1

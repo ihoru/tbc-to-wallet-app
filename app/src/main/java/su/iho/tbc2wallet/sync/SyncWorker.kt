@@ -1,4 +1,4 @@
-package app.tbcwallet.sync
+package su.iho.tbc2wallet.sync
 
 import android.content.Context
 import android.util.Log
@@ -12,19 +12,19 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
-import app.tbcwallet.api.WalletApi
-import app.tbcwallet.categorize.AppliesTo
-import app.tbcwallet.categorize.CategoryResolver
-import app.tbcwallet.categorize.LearnedEntry
-import app.tbcwallet.categorize.MatchType
-import app.tbcwallet.categorize.UserRule
-import app.tbcwallet.categorize.WalletRule
-import app.tbcwallet.data.AppDatabase
-import app.tbcwallet.data.Settings
-import app.tbcwallet.data.TransactionEntity
-import app.tbcwallet.data.TxStatus
-import app.tbcwallet.ingest.Notifier
-import app.tbcwallet.parse.TxKind
+import su.iho.tbc2wallet.api.WalletApi
+import su.iho.tbc2wallet.categorize.AppliesTo
+import su.iho.tbc2wallet.categorize.CategoryResolver
+import su.iho.tbc2wallet.categorize.LearnedEntry
+import su.iho.tbc2wallet.categorize.MatchType
+import su.iho.tbc2wallet.categorize.UserRule
+import su.iho.tbc2wallet.categorize.WalletRule
+import su.iho.tbc2wallet.data.AppDatabase
+import su.iho.tbc2wallet.data.Settings
+import su.iho.tbc2wallet.data.TransactionEntity
+import su.iho.tbc2wallet.data.TxStatus
+import su.iho.tbc2wallet.ingest.Notifier
+import su.iho.tbc2wallet.parse.TxKind
 import java.util.concurrent.TimeUnit
 
 /**

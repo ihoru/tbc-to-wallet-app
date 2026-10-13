@@ -1,14 +1,14 @@
-package app.tbcwallet
+package su.iho.tbc2wallet
 
-import app.tbcwallet.categorize.AppliesTo
-import app.tbcwallet.categorize.CategoryResolver
-import app.tbcwallet.categorize.CategorySource
-import app.tbcwallet.categorize.MatchType
-import app.tbcwallet.categorize.PayeeLearner
-import app.tbcwallet.categorize.UserRule
-import app.tbcwallet.categorize.WalletRule
-import app.tbcwallet.parse.TbcNotificationParser
-import app.tbcwallet.parse.TxKind
+import su.iho.tbc2wallet.categorize.AppliesTo
+import su.iho.tbc2wallet.categorize.CategoryResolver
+import su.iho.tbc2wallet.categorize.CategorySource
+import su.iho.tbc2wallet.categorize.MatchType
+import su.iho.tbc2wallet.categorize.PayeeLearner
+import su.iho.tbc2wallet.categorize.UserRule
+import su.iho.tbc2wallet.categorize.WalletRule
+import su.iho.tbc2wallet.parse.TbcNotificationParser
+import su.iho.tbc2wallet.parse.TxKind
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test

@@ -1,6 +1,6 @@
-package app.tbcwallet.categorize
+package su.iho.tbc2wallet.categorize
 
-import app.tbcwallet.parse.TxKind
+import su.iho.tbc2wallet.parse.TxKind
 import java.text.Normalizer
 
 enum class CategorySource { USER_RULE, WALLET_RULE, LEARNED, NONE }

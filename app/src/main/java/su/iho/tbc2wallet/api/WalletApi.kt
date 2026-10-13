@@ -1,4 +1,4 @@
-package app.tbcwallet.api
+package su.iho.tbc2wallet.api
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
