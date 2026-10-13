@@ -29,6 +29,15 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     buildFeatures { compose = true }
+    testOptions { unitTests.isIncludeAndroidResources = true }
+}
+
+// Screenshot tests render the real UI with Robolectric and are slow, so they only run on request:
+//   ./gradlew :app:testDebugUnitTest -Pscreenshots --tests '*screenshots*'
+// Images land in app/build/outputs/roborazzi/.
+tasks.withType<Test>().configureEach {
+    if (project.hasProperty("screenshots")) systemProperty("roborazzi.test.record", "true")
+    else exclude("**/screenshots/**")
 }
 
 dependencies {
@@ -54,4 +63,9 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
 
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.17")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi:1.76.0")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi-compose:1.76.0")
+    testImplementation("androidx.compose.ui:ui-test-junit4")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
 }

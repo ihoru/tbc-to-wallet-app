@@ -123,7 +123,7 @@ private enum class Tab(val label: String) { ACTIVITY("Activity"), RULES("Rules")
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun App(vm: MainViewModel) {
+internal fun App(vm: MainViewModel) { // internal for the screenshot tests
     var tab by rememberSaveable { mutableStateOf(if (vm.settings.hasToken) Tab.ACTIVITY else Tab.SETTINGS) }
     var ruleDraft by remember { mutableStateOf<UserRuleEntity?>(null) } // non-null = rule dialog open; id 0 = new rule
     val snackbar = remember { SnackbarHostState() }
@@ -252,7 +252,11 @@ private fun RulesScreen(vm: MainViewModel, onEdit: (UserRuleEntity) -> Unit) {
     var learnedOpen by rememberSaveable { mutableStateOf(false) }
     val clashes = remember(rules) { RuleClashes.find(rules.sortedBy { it.id }) { it.toUserRule() } }
     val clashing = remember(clashes) { clashes.flatMap { listOf(it.first.id, it.second.id) }.toSet() }
-    LazyColumn(contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    // Extra bottom space so the + button never covers the last row.
+    LazyColumn(
+        contentPadding = PaddingValues(start = 12.dp, top = 12.dp, end = 12.dp, bottom = 88.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
         item {
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
