@@ -16,13 +16,13 @@ A personal, sideloaded Android app that:
    the queue and the app notifies the owner to map it.
 
 ## Current state
-- The project compiles: `./gradlew assembleDebug test` passes (AGP 8.7.3, Gradle 8.11.1 wrapper),
+- The project compiles: `./gradlew assembleDebug test` passes (AGP 9.4.1, Gradle 9.8.1 wrapper),
   with no source changes needed. GitHub Actions (`.github/workflows/android.yml`) runs the same
   command and uploads `app-debug.apk` as a build artifact.
 - The parser regexes were checked (as Java, same regex engine) against all real samples below,
   and every one parsed correctly.
-- Versions pinned: AGP 8.7.3, Kotlin 2.1.0, KSP 2.1.0-1.0.29, Compose BOM 2024.12.01,
-  Room 2.6.1, WorkManager 2.10.0, OkHttp 4.12.0, kotlinx-serialization 1.7.3. minSdk 26,
+- Versions pinned: AGP 9.4.1 (built-in Kotlin), Kotlin 2.4.21, KSP 2.3.12, Compose BOM 2024.12.01,
+  Room 2.8.5, WorkManager 2.10.0, OkHttp 4.12.0, kotlinx-serialization 1.7.3. minSdk 26,
   target/compile 35.
 
 ## Next steps
