@@ -6,11 +6,9 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -98,8 +96,7 @@ class WalletApi(private val token: String) {
     }
 
     /**
-     * Creates a label and returns its id. Single-item create endpoints take one object; the id is
-     * read from either a plain object or a batch envelope. Callers treat any failure as "not supported".
+     * Creates a label (`POST /v1/api/labels` with one object) and returns its id.
      */
     suspend fun createLabel(name: String): String? {
         val body = json.encodeToString(mapOf("name" to name)).toRequestBody(JSON)
@@ -107,9 +104,8 @@ class WalletApi(private val token: String) {
         return execute(request, acceptedCodes = setOf(200, 201, 207)) { text ->
             val root = json.parseToJsonElement(text)
             fun JsonElement.id(): String? = (this as? JsonObject)?.get("id")?.jsonPrimitive?.contentOrNull
-            root.id()
-                ?: (root as? JsonObject)?.get("results")?.jsonArray?.firstOrNull()?.id()
-                ?: (root as? JsonArray)?.firstOrNull()?.id()
+            // Documented response: {"label": {"id": ...}, "summary": ...}
+            (root as? JsonObject)?.get("label")?.id() ?: root.id()
         }
     }
 

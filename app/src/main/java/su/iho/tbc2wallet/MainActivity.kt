@@ -207,10 +207,13 @@ private fun TransactionCard(tx: TransactionEntity, vm: MainViewModel, onMakeRule
                 Text("$date · ${tx.accountLabel.orEmpty()}", style = MaterialTheme.typography.bodySmall)
                 Text(categoryLine(tx), style = MaterialTheme.typography.bodySmall)
             }
+            if (tx.isFake) Text(
+                "Fake · typed in by hand, labelled \"fake\" in Wallet",
+                color = MaterialTheme.colorScheme.tertiary, style = MaterialTheme.typography.labelMedium,
+            )
             tx.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 AssistChip(onClick = {}, label = { Text(statusLabel(tx.status)) })
-                if (tx.isFake) AssistChip(onClick = {}, label = { Text("Fake") })
                 Spacer(Modifier.weight(1f))
                 if (tx.status == TxStatus.FAILED) TextButton(onClick = { vm.retry(tx) }) { Text("Retry") }
                 if (tx.status in setOf(TxStatus.FAILED, TxStatus.UNPARSED, TxStatus.NEEDS_ACCOUNT, TxStatus.PENDING))

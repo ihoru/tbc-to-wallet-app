@@ -98,56 +98,51 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
 
         var failed = 0
         var lastError = ""
-        // Fake records rejected while carrying the label are sent once more without it, in case
-        // the cached label was deleted in Wallet; the cache is cleared so the next run looks it up.
-        val retryWithoutLabel = mutableListOf<Pair<TransactionEntity, WalletApi.NewRecord>>()
-        suspend fun send(batch: List<Pair<TransactionEntity, WalletApi.NewRecord>>, allowLabelRetry: Boolean) {
-            for (chunk in batch.chunked(20)) {
-                val results = api.createRecords(chunk.map { it.second }).associateBy { it.inputIndex }
-                chunk.forEachIndexed { i, (tx, record) ->
-                    val r = results[i]
-                    when {
-                        r?.success == true -> dao.upsertTx(tx.copy(status = TxStatus.SENT, walletRecordId = r.id, error = null))
-                        r?.errorType == "client_error" && allowLabelRetry && record.labelIds != null -> {
-                            settings.fakeLabelId = null
-                            retryWithoutLabel += tx to record.copy(labelIds = null)
-                        }
-                        r?.errorType == "client_error" -> {
-                            failed++; lastError = r.error.orEmpty()
-                            dao.upsertTx(tx.copy(status = TxStatus.FAILED, error = r.error))
-                        }
-                        // server_error or missing result: keep it queued for the next run
-                        else -> dao.upsertTx(tx.copy(status = TxStatus.PENDING, error = r?.error ?: "No result from Wallet"))
+        for (chunk in ready.chunked(20)) {
+            val results = api.createRecords(chunk.map { it.second }).associateBy { it.inputIndex }
+            chunk.forEachIndexed { i, (tx, _) ->
+                val r = results[i]
+                when {
+                    r?.success == true -> dao.upsertTx(tx.copy(status = TxStatus.SENT, walletRecordId = r.id, error = null))
+                    r?.errorType == "client_error" -> {
+                        failed++; lastError = r.error.orEmpty()
+                        dao.upsertTx(tx.copy(status = TxStatus.FAILED, error = r.error))
                     }
+                    // server_error or missing result: keep it queued for the next run
+                    else -> dao.upsertTx(tx.copy(status = TxStatus.PENDING, error = r?.error ?: "No result from Wallet"))
                 }
             }
         }
-        send(ready, allowLabelRetry = true)
-        if (retryWithoutLabel.isNotEmpty()) send(retryWithoutLabel, allowLabelRetry = false)
 
         if (missingAccounts.isNotEmpty()) Notifier.needsAccount(applicationContext, missingAccounts)
         if (failed > 0) Notifier.failed(applicationContext, failed, lastError)
         note("Sent ${ready.size - failed}, failed $failed" +
             (if (missingAccounts.isNotEmpty()) ", waiting for account: ${missingAccounts.joinToString()}" else "") +
-            (if (ready.any { it.first.isFake } && (fakeLabel == null || retryWithoutLabel.isNotEmpty()))
+            (if (ready.any { it.first.isFake } && fakeLabel == null)
                 ". Couldn't find or create the \"$FAKE_LABEL\" label in Wallet, so fake records are marked in the note only" else ""))
     }
 
     /**
-     * Finds the Wallet label named "fake", creating it if needed. Returns null when it can't
-     * (the record still goes out, with "[fake]" in its note), so a test never blocks the queue.
+     * Finds the active Wallet label named "fake", creating it if missing. It is looked up on every
+     * run that has fake records (they are rare), so a label renamed, archived or deleted in Wallet
+     * is never reused. Returns null when the label API refuses the request (a 4xx); the record
+     * still goes out with "[fake]" in its note. Rate limits, 5xx, auth and network errors propagate
+     * so the worker backs off as for any other call.
      */
     private suspend fun fakeLabelId(api: WalletApi): String? {
-        settings.fakeLabelId?.let { return it }
-        // Only an HTTP error (endpoint missing or request refused) falls back to note-only. Rate
-        // limits, auth and network errors propagate so the worker backs off as for any other call.
-        suspend fun <T> orNullOnHttpError(what: String, block: suspend () -> T): T? =
-            try { block() } catch (e: WalletApi.ApiException.Http) { Log.w(TAG, "$what failed", e); null }
-        val id = orNullOnHttpError("listing labels") {
-            api.labels().firstOrNull { !it.archived && it.name.equals(FAKE_LABEL, true) }?.id
-        } ?: orNullOnHttpError("creating label") { api.createLabel(FAKE_LABEL) }
-        settings.fakeLabelId = id
-        return id
+        val labels = try {
+            api.labels()
+        } catch (e: WalletApi.ApiException.Http) {
+            if (e.code >= 500) throw e
+            Log.w(TAG, "listing labels failed", e); return null
+        }
+        labels.firstOrNull { !it.archived && it.name.equals(FAKE_LABEL, true) }?.let { return it.id }
+        return try {
+            api.createLabel(FAKE_LABEL)
+        } catch (e: WalletApi.ApiException.Http) {
+            if (e.code >= 500) throw e
+            Log.w(TAG, "creating label failed", e); null
+        }
     }
 
     private suspend fun buildResolver(): CategoryResolver {
