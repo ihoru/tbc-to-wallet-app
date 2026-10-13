@@ -115,6 +115,11 @@ class ResolverTest {
         assertEquals(MatchType.EXACT, clashes.single().winner.matchType)
     }
 
+    @Test fun exactRuleClashesThroughItsNormalizedKey() {
+        // A payee "WOLT MARKET" matches both: exact by key, and it contains "wolt market".
+        assertEquals(1, RuleClashes.find(listOf(rule("Wolt-Market", MatchType.EXACT), rule("wolt market", cat = "c2"))) { it }.size)
+    }
+
     @Test fun differentLabelsAlsoClash() {
         assertEquals(1, RuleClashes.find(listOf(rule("wolt"), rule("wolt", labels = listOf("l1")))) { it }.size)
     }

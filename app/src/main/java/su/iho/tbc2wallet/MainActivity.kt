@@ -416,7 +416,11 @@ private fun RuleDialog(vm: MainViewModel, initial: UserRuleEntity, onDismiss: ()
                 if (shown.isEmpty()) {
                     Text("No labels loaded from Wallet.", style = MaterialTheme.typography.bodySmall)
                 } else {
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    // Capped and scrollable so a long label list can't push the category picker out of the dialog.
+                    FlowRow(
+                        Modifier.heightIn(max = 120.dp).verticalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
                         shown.forEach { (id, name) ->
                             FilterChip(
                                 selected = id in chosenLabels,

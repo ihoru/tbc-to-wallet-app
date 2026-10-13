@@ -36,9 +36,16 @@ object RuleClashes {
         val ka = CategoryResolver.payeeKey(pa); val kb = CategoryResolver.payeeKey(pb)
         return when {
             a.matchType == MatchType.EXACT && b.matchType == MatchType.EXACT -> ka == kb
-            a.matchType == MatchType.EXACT -> pa.contains(pb, ignoreCase = true)
-            b.matchType == MatchType.EXACT -> pb.contains(pa, ignoreCase = true)
+            a.matchType == MatchType.EXACT -> exactCanContain(pa, ka, pb, kb)
+            b.matchType == MatchType.EXACT -> exactCanContain(pb, kb, pa, ka)
             else -> pa.contains(pb, ignoreCase = true) || pb.contains(pa, ignoreCase = true)
         }
     }
+
+    /**
+     * An exact rule matches any payee with the same normalized key ("Wolt-Market 12" for
+     * "WOLT MARKET"), so a contains pattern can hit it through either the literal text or the key.
+     */
+    private fun exactCanContain(exact: String, exactKey: String, contains: String, containsKey: String) =
+        exact.contains(contains, ignoreCase = true) || (containsKey.isNotEmpty() && exactKey.contains(containsKey))
 }
