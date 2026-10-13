@@ -112,7 +112,7 @@ private enum class Tab(val label: String) { ACTIVITY("Activity"), RULES("Rules")
 @Composable
 private fun App(vm: MainViewModel) {
     var tab by rememberSaveable { mutableStateOf(if (vm.settings.hasToken) Tab.ACTIVITY else Tab.SETTINGS) }
-    var ruleDraft by remember { mutableStateOf<String?>(null) } // non-null = rule dialog open
+    var ruleDraft by remember { mutableStateOf<UserRuleEntity?>(null) } // non-null = rule dialog open; id 0 = new rule
     val snackbar = remember { SnackbarHostState() }
     val message by vm.message.collectAsState()
     val busy by vm.busy.collectAsState()
@@ -140,23 +140,26 @@ private fun App(vm: MainViewModel) {
             }
         },
         floatingActionButton = {
-            if (tab == Tab.RULES) FloatingActionButton(onClick = { ruleDraft = "" }) { Icon(Icons.Default.Add, "Add rule") }
+            if (tab == Tab.RULES) FloatingActionButton(onClick = { ruleDraft = newRule("") }) { Icon(Icons.Default.Add, "Add rule") }
         },
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
             if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
             when (tab) {
-                Tab.ACTIVITY -> ActivityScreen(vm, onMakeRule = { ruleDraft = it })
-                Tab.RULES -> RulesScreen(vm)
+                Tab.ACTIVITY -> ActivityScreen(vm, onMakeRule = { ruleDraft = newRule(it) })
+                Tab.RULES -> RulesScreen(vm, onEdit = { ruleDraft = it })
                 Tab.SETTINGS -> SettingsScreen(vm)
             }
         }
     }
 
     ruleDraft?.let { draft ->
-        RuleDialog(vm, initialPattern = draft, onDismiss = { ruleDraft = null })
+        RuleDialog(vm, initial = draft, onDismiss = { ruleDraft = null })
     }
 }
+
+private fun newRule(pattern: String) =
+    UserRuleEntity(pattern = pattern, matchType = "CONTAINS", appliesTo = "ANY", categoryId = "", categoryName = "")
 
 // ---------------------------------------------------------------- Activity
 
@@ -229,7 +232,7 @@ private fun statusLabel(s: TxStatus) = when (s) {
 // ---------------------------------------------------------------- Rules
 
 @Composable
-private fun RulesScreen(vm: MainViewModel) {
+private fun RulesScreen(vm: MainViewModel, onEdit: (UserRuleEntity) -> Unit) {
     val rules by vm.userRules.collectAsState()
     val walletRules by vm.walletRuleCount.collectAsState()
     val learned by vm.learnedCount.collectAsState()
@@ -250,13 +253,14 @@ private fun RulesScreen(vm: MainViewModel) {
             }
         }
         if (rules.isEmpty()) item { EmptyState("No rules yet. Tap + or use \"Rule…\" on a transaction.") }
-        items(rules, key = { it.id }) { rule -> RuleRow(rule, onDelete = { vm.deleteRule(rule) }) }
+        else item { Text("Tap a rule to edit it.", style = MaterialTheme.typography.bodySmall) }
+        items(rules, key = { it.id }) { rule -> RuleRow(rule, onEdit = { onEdit(rule) }, onDelete = { vm.deleteRule(rule) }) }
     }
 }
 
 @Composable
-private fun RuleRow(rule: UserRuleEntity, onDelete: () -> Unit) {
-    Card(Modifier.fillMaxWidth()) {
+private fun RuleRow(rule: UserRuleEntity, onEdit: () -> Unit, onDelete: () -> Unit) {
+    Card(Modifier.fillMaxWidth().clickable(onClick = onEdit)) {
         Row(Modifier.padding(start = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f).padding(vertical = 10.dp)) {
                 val how = if (rule.matchType == "EXACT") "is" else "contains"
@@ -270,17 +274,21 @@ private fun RuleRow(rule: UserRuleEntity, onDelete: () -> Unit) {
 }
 
 @Composable
-private fun RuleDialog(vm: MainViewModel, initialPattern: String, onDismiss: () -> Unit) {
+private fun RuleDialog(vm: MainViewModel, initial: UserRuleEntity, onDismiss: () -> Unit) {
     val categories by vm.categories.collectAsState()
-    var pattern by remember { mutableStateOf(initialPattern) }
-    var matchType by remember { mutableStateOf("CONTAINS") }
-    var appliesTo by remember { mutableStateOf("ANY") }
+    val editing = initial.id != 0L
+    var pattern by remember { mutableStateOf(initial.pattern) }
+    var matchType by remember { mutableStateOf(initial.matchType) }
+    var appliesTo by remember { mutableStateOf(initial.appliesTo) }
     var query by remember { mutableStateOf("") }
-    var selected by remember { mutableStateOf<CategoryEntity?>(null) }
+    // An edited rule keeps its category (id + name) even if it's no longer in the loaded list.
+    var selected by remember {
+        mutableStateOf(if (editing) CategoryEntity(initial.categoryId, initial.categoryName, null) else null)
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Category rule") },
+        title = { Text(if (editing) "Edit rule" else "Category rule") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(pattern, { pattern = it }, label = { Text("Payee text") }, singleLine = true)
@@ -293,7 +301,7 @@ private fun RuleDialog(vm: MainViewModel, initialPattern: String, onDismiss: () 
                         FilterChip(appliesTo == v, { appliesTo = v }, label = { Text(l) })
                     }
                 }
-                if (categories.isEmpty()) {
+                if (categories.isEmpty() && selected == null) {
                     Text("No categories loaded. Add your token in Settings and tap Refresh.", color = MaterialTheme.colorScheme.error)
                 } else {
                     OutlinedTextField(
@@ -319,10 +327,23 @@ private fun RuleDialog(vm: MainViewModel, initialPattern: String, onDismiss: () 
         confirmButton = {
             TextButton(
                 enabled = pattern.isNotBlank() && selected != null,
-                onClick = { vm.addRule(pattern, matchType, appliesTo, selected!!); onDismiss() },
+                onClick = {
+                    vm.saveRule(initial.copy(
+                        pattern = pattern, matchType = matchType, appliesTo = appliesTo,
+                        categoryId = selected!!.id, categoryName = selected!!.displayName,
+                    ))
+                    onDismiss()
+                },
             ) { Text("Save") }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = {
+            Row {
+                if (editing) TextButton(onClick = { vm.deleteRule(initial); onDismiss() }) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
+                TextButton(onClick = onDismiss) { Text("Cancel") }
+            }
+        },
     )
 }
 

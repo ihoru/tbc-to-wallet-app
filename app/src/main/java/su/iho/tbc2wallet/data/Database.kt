@@ -11,6 +11,7 @@ import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.Transaction
+import androidx.room.Update
 import androidx.room.Upsert
 import kotlinx.coroutines.flow.Flow
 
@@ -116,6 +117,7 @@ abstract class AppDao {
     @Query("SELECT * FROM user_rules ORDER BY pattern") abstract fun observeUserRules(): Flow<List<UserRuleEntity>>
     @Query("SELECT * FROM user_rules") abstract suspend fun userRules(): List<UserRuleEntity>
     @Insert abstract suspend fun insertUserRule(rule: UserRuleEntity)
+    @Update abstract suspend fun updateUserRule(rule: UserRuleEntity)
     @Query("DELETE FROM user_rules WHERE id = :id") abstract suspend fun deleteUserRule(id: Long)
 
     @Query("SELECT * FROM wallet_rules") abstract suspend fun walletRules(): List<WalletRuleEntity>
