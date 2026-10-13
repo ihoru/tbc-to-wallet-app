@@ -356,9 +356,14 @@ private fun SettingsScreen(vm: MainViewModel) {
             var token by remember { mutableStateOf("") }
             Text(
                 if (vm.settings.hasToken) "Token saved (encrypted on this phone)." else
-                    "Create one in Wallet web → Settings → REST API (Premium plan).",
+                    "Create one in Wallet web (Premium plan), then paste it here.",
                 style = MaterialTheme.typography.bodySmall,
             )
+            val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
+            TextButton(
+                onClick = { uriHandler.openUri("https://web.budgetbakers.com/settings/rest-api/create-token") },
+                contentPadding = PaddingValues(0.dp),
+            ) { Text("Get a token on Wallet web") }
             OutlinedTextField(
                 value = token, onValueChange = { token = it },
                 label = { Text(if (vm.settings.hasToken) "Replace token" else "Paste token") },
