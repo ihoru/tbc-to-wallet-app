@@ -208,7 +208,7 @@ private fun TransactionCard(tx: TransactionEntity, vm: MainViewModel, onMakeRule
                 Text(categoryLine(tx), style = MaterialTheme.typography.bodySmall)
             }
             if (tx.isFake) Text(
-                "Fake · typed in by hand, labelled \"fake\" in Wallet",
+                "Fake · typed in by hand, not from TBC",
                 color = MaterialTheme.colorScheme.tertiary, style = MaterialTheme.typography.labelMedium,
             )
             tx.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
