@@ -16,6 +16,9 @@ jobs:
           distribution: temurin
           java-version: 17
       - uses: gradle/actions/setup-gradle@v6
+        with:
+          # Open-source GitHub Actions cache; the default 'enhanced' provider has its own commercial terms.
+          cache-provider: basic
       - name: Build and test
         run: ./gradlew assembleDebug test
       - name: Upload debug APK
