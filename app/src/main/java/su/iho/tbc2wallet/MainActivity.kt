@@ -794,7 +794,8 @@ internal fun LabelPicker(options: List<Pair<String, String>>, chosen: Map<String
     ExposedDropdownMenuBox(expanded, { expanded = it }) {
         OutlinedTextField(
             value = if (chosen.isEmpty()) "None" else options.filter { it.first in chosen }.joinToString(", ") { it.second },
-            onValueChange = {}, readOnly = true,
+            // One line, so many or long labels can't stretch the dialog past its buttons.
+            onValueChange = {}, readOnly = true, singleLine = true,
             label = { Text("Labels") },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
             modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable),
