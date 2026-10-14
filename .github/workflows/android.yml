@@ -12,7 +12,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 0 # full history: versionCode is the commit count
+          fetch-depth: 0 # full history: versionName uses the commit count
       - uses: actions/setup-java@v6
         with:
           distribution: temurin

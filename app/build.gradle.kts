@@ -6,12 +6,15 @@ plugins {
 }
 
 // Version comes from git so every build is unique and traceable to its commit:
-// versionCode = number of commits, versionName = 0.1.<commits>, GIT_SHA = short hash.
+// versionName = 0.1.<commit count>, GIT_SHA = short hash.
+// versionCode = minutes since 2020 at commit time, not the commit count: a squash-merge lowers the count,
+// so an APK from a PR branch would otherwise outrank the merged build and block its install.
 // Falls back to 1 / "unknown" when git or the history isn't available.
 fun git(vararg args: String): String? = runCatching {
     providers.exec { commandLine("git", *args) }.standardOutput.asText.get().trim().ifEmpty { null }
 }.getOrNull()
 val gitCommitCount = git("rev-list", "--count", "HEAD")?.toIntOrNull() ?: 1
+val gitCommitMinutes = git("log", "-1", "--format=%ct")?.toLongOrNull()?.let { ((it - 1_577_836_800) / 60).toInt() } ?: 1
 val gitSha = git("rev-parse", "--short=7", "HEAD") ?: "unknown"
 
 android {
@@ -22,7 +25,7 @@ android {
         applicationId = "su.iho.tbc2wallet"
         minSdk = 26
         targetSdk = 35
-        versionCode = gitCommitCount
+        versionCode = gitCommitMinutes
         versionName = "0.1.$gitCommitCount"
         buildConfigField("String", "GIT_SHA", "\"$gitSha\"")
     }
