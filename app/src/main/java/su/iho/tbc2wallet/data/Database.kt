@@ -157,6 +157,7 @@ abstract class AppDao {
     @Query("SELECT * FROM learned") abstract suspend fun learned(): List<LearnedEntity>
     @Query("SELECT * FROM learned ORDER BY payeeKey") abstract fun observeLearned(): Flow<List<LearnedEntity>>
     @Query("SELECT COUNT(*) FROM learned") abstract fun observeLearnedCount(): Flow<Int>
+    @Query("DELETE FROM learned WHERE payeeKey = :payeeKey") abstract suspend fun deleteLearned(payeeKey: String)
     @Query("DELETE FROM learned") abstract suspend fun clearLearned()
     @Insert abstract suspend fun insertLearned(items: List<LearnedEntity>)
     @Transaction open suspend fun replaceLearned(items: List<LearnedEntity>) { clearLearned(); insertLearned(items) }

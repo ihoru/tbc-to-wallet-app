@@ -43,6 +43,10 @@ import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
+import androidx.compose.foundation.background
+import androidx.compose.material3.rememberSwipeToDismissBoxState
+import androidx.compose.material3.SwipeToDismissBoxValue
+import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -313,6 +317,7 @@ private fun RulesScreen(vm: MainViewModel, onEdit: (UserRuleEntity) -> Unit) {
     val walletRules by vm.walletRuleCount.collectAsState()
     val learned by vm.learned.collectAsState()
     var learnedOpen by rememberSaveable { mutableStateOf(false) }
+    var forgetting by remember { mutableStateOf<LearnedEntity?>(null) }
     val clashes = remember(rules) { RuleClashes.find(rules.sortedBy { it.id }) { it.toUserRule() } }
     val clashing = remember(clashes) { clashes.flatMap { listOf(it.first.id, it.second.id) }.toSet() }
     // Extra bottom space so the + button never covers the last row.
@@ -359,20 +364,55 @@ private fun RulesScreen(vm: MainViewModel, onEdit: (UserRuleEntity) -> Unit) {
             if (learnedOpen) {
                 item(key = "learned-hint") {
                     Text(
-                        "Rebuilt from Wallet every week. Tap one to turn it into your own rule.",
+                        "Rebuilt from Wallet every week. Tap one to turn it into your own rule, or swipe it away to forget it.",
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
                 items(learned, key = { "learned-" + it.payeeKey }) { entry ->
-                    LearnedRow(entry, onClick = {
-                        onEdit(newRule(entry.payeeKey).copy(
-                            matchType = "EXACT", categoryId = entry.categoryId, categoryName = entry.categoryName,
-                        ))
-                    })
+                    SwipeToDelete(onSwiped = { forgetting = entry }) {
+                        LearnedRow(entry, onClick = {
+                            onEdit(newRule(entry.payeeKey).copy(
+                                matchType = "EXACT", categoryId = entry.categoryId, categoryName = entry.categoryName,
+                            ))
+                        })
+                    }
                 }
             }
         }
     }
+    forgetting?.let { entry ->
+        AlertDialog(
+            onDismissRequest = { forgetting = null },
+            title = { Text("Forget “${entry.payeeKey}”?") },
+            text = { Text("It stops getting ${entry.categoryName} from your history, and later re-learns skip it. Your own rules aren't affected.") },
+            confirmButton = {
+                TextButton(onClick = { vm.forgetLearned(entry); forgetting = null }) { Text("Forget", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { forgetting = null }) { Text("Cancel") } },
+        )
+    }
+}
+
+/** Swiping either way asks [onSwiped] to confirm; the card springs back until the row is really gone. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SwipeToDelete(onSwiped: () -> Unit, content: @Composable () -> Unit) {
+    val state = rememberSwipeToDismissBoxState(confirmValueChange = {
+        if (it != SwipeToDismissBoxValue.Settled) onSwiped()
+        false
+    })
+    SwipeToDismissBox(
+        state = state,
+        backgroundContent = {
+            val start = state.dismissDirection == SwipeToDismissBoxValue.StartToEnd
+            Box(
+                Modifier.fillMaxSize().background(MaterialTheme.colorScheme.errorContainer, CardDefaults.shape).padding(horizontal = 20.dp),
+                contentAlignment = if (start) Alignment.CenterStart else Alignment.CenterEnd,
+            ) {
+                Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.onErrorContainer)
+            }
+        },
+    ) { content() }
 }
 
 @Composable

@@ -71,7 +71,8 @@ class Catalog(private val context: Context) {
             .toMap()
 
         val learned = PayeeLearner.learn(history, settings.unknownCategoryIds, assignedByApp)
-        dao.replaceLearned(learned.values.map {
+        val forgotten = settings.forgottenPayees
+        dao.replaceLearned(learned.values.filter { it.payeeKey !in forgotten }.map {
             LearnedEntity(it.payeeKey, it.categoryId, it.categoryName, it.votes, it.totalVotes)
         })
         settings.lastLearnRefresh = System.currentTimeMillis()

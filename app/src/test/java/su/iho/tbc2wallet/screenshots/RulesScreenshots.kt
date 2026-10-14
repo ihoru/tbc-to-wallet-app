@@ -20,6 +20,9 @@ import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeLeft
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.performScrollToNode
 import androidx.test.core.app.ApplicationProvider
 import com.github.takahirom.roborazzi.ExperimentalRoborazziApi
@@ -133,5 +136,30 @@ class RulesScreenshots {
         compose.onNodeWithText("delivery, work").performClick()
         compose.waitUntilAtLeastOneExists(hasText("trip"), 5_000)
         captureScreenRoboImage("$out/rule-labels-dropdown.png")
+    }
+
+    @Test fun learnedSwipe() {
+        showRules()
+        scrollTo("Learned from your history (3)")
+        compose.onNodeWithText("Learned from your history (3)").performClick()
+        scrollTo("Payee is “SPAR”")
+        compose.waitUntilAtLeastOneExists(hasText("Payee is “GULF”"), 5_000)
+        // Held halfway, so the delete background shows.
+        compose.onNodeWithText("Payee is “GULF”").performTouchInput { down(centerRight); moveBy(Offset(-width * 0.4f, 0f)) }
+        compose.mainClock.advanceTimeBy(500)
+        captureScreenRoboImage("$out/learned-swipe.png")
+    }
+
+    @Test fun learnedForgetDialog() {
+        showRules()
+        scrollTo("Learned from your history (3)")
+        compose.onNodeWithText("Learned from your history (3)").performClick()
+        scrollTo("Payee is “SPAR”")
+        compose.waitUntilAtLeastOneExists(hasText("Payee is “GULF”"), 5_000)
+        // The dialog over the whole app never reports idle, so drive the clock by hand (see editRuleDialog).
+        compose.mainClock.autoAdvance = false
+        compose.onNodeWithText("Payee is “GULF”").performTouchInput { swipeLeft() }
+        compose.mainClock.advanceTimeBy(2_000)
+        captureScreenRoboImage("$out/learned-forget-dialog.png")
     }
 }
