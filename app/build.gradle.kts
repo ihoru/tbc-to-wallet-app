@@ -17,6 +17,24 @@ android {
         versionName = "0.1"
     }
 
+    // One shared key so APKs built on any machine or CI run install over each other (Android refuses an
+    // update signed with a different key). The repo is public, so the key stays out of git: it lives in
+    // app/signing/ locally and in the SIGNING_KEYSTORE_B64 secret on CI. Without it, the build falls back
+    // to the machine's own debug key, and that APK won't install over one signed with the shared key.
+    val sharedKeystore = file("signing/tbc2wallet.keystore")
+    signingConfigs {
+        getByName("debug") {
+            if (sharedKeystore.exists()) {
+                storeFile = sharedKeystore
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            } else {
+                logger.warn("app/signing/tbc2wallet.keystore not found: signing with this machine's debug key")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false

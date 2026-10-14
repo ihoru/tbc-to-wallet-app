@@ -28,6 +28,10 @@ A personal, sideloaded Android app that:
 ## Next steps
 1. Install on the owner's phone (debug APK from the CI run, or `./gradlew installDebug`) and test
    with a real TBC notification.
+   Builds are signed with a shared key so a new APK installs over the old one. The key is not in git
+   (the repo is public): keep it at `app/signing/tbc2wallet.keystore` (gitignored) on each machine that
+   builds, and base64 of the same file in the `SIGNING_KEYSTORE_B64` repo secret for CI. Without it a
+   build falls back to the machine's own debug key and won't install over the others.
 2. Run `./gradlew test` after parser or resolver changes. `app/src/test/.../LogicTest.kt` covers both.
 
 ## Layout
