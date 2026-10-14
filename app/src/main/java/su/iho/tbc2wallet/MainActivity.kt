@@ -43,10 +43,15 @@ import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
+import androidx.compose.foundation.background
+import androidx.compose.material3.rememberSwipeToDismissBoxState
+import androidx.compose.material3.SwipeToDismissBoxValue
+import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -313,6 +318,7 @@ private fun RulesScreen(vm: MainViewModel, onEdit: (UserRuleEntity) -> Unit) {
     val walletRules by vm.walletRuleCount.collectAsState()
     val learned by vm.learned.collectAsState()
     var learnedOpen by rememberSaveable { mutableStateOf(false) }
+    var forgetting by remember { mutableStateOf<LearnedEntity?>(null) }
     val clashes = remember(rules) { RuleClashes.find(rules.sortedBy { it.id }) { it.toUserRule() } }
     val clashing = remember(clashes) { clashes.flatMap { listOf(it.first.id, it.second.id) }.toSet() }
     // Extra bottom space so the + button never covers the last row.
@@ -329,7 +335,7 @@ private fun RulesScreen(vm: MainViewModel, onEdit: (UserRuleEntity) -> Unit) {
                     Text("3. Learned from your history (${learned.size} payees)")
                     Text("4. Otherwise none — Wallet marks it Unknown")
                     Text(
-                        "History is re-read weekly. If you fix a category in Wallet, that correction counts triple next time.",
+                        "History is re-read daily. If you fix a category in Wallet, that correction counts triple next time.",
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
@@ -359,20 +365,55 @@ private fun RulesScreen(vm: MainViewModel, onEdit: (UserRuleEntity) -> Unit) {
             if (learnedOpen) {
                 item(key = "learned-hint") {
                     Text(
-                        "Rebuilt from Wallet every week. Tap one to turn it into your own rule.",
+                        "Rebuilt from Wallet every day. Tap one to turn it into your own rule, or swipe it away to forget it.",
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
                 items(learned, key = { "learned-" + it.payeeKey }) { entry ->
-                    LearnedRow(entry, onClick = {
-                        onEdit(newRule(entry.payeeKey).copy(
-                            matchType = "EXACT", categoryId = entry.categoryId, categoryName = entry.categoryName,
-                        ))
-                    })
+                    SwipeToDelete(onSwiped = { forgetting = entry }) {
+                        LearnedRow(entry, onClick = {
+                            onEdit(newRule(entry.payeeKey).copy(
+                                matchType = "EXACT", categoryId = entry.categoryId, categoryName = entry.categoryName,
+                            ))
+                        })
+                    }
                 }
             }
         }
     }
+    forgetting?.let { entry ->
+        AlertDialog(
+            onDismissRequest = { forgetting = null },
+            title = { Text("Forget “${entry.payeeKey}”?") },
+            text = { Text("It stops getting ${entry.categoryName} from your history, and later re-learns skip it. Your own rules aren't affected.") },
+            confirmButton = {
+                TextButton(onClick = { vm.forgetLearned(entry); forgetting = null }) { Text("Forget", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { forgetting = null }) { Text("Cancel") } },
+        )
+    }
+}
+
+/** Swiping either way asks [onSwiped] to confirm; the card springs back until the row is really gone. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SwipeToDelete(onSwiped: () -> Unit, content: @Composable () -> Unit) {
+    val state = rememberSwipeToDismissBoxState(confirmValueChange = {
+        if (it != SwipeToDismissBoxValue.Settled) onSwiped()
+        false
+    })
+    SwipeToDismissBox(
+        state = state,
+        backgroundContent = {
+            val start = state.dismissDirection == SwipeToDismissBoxValue.StartToEnd
+            Box(
+                Modifier.fillMaxSize().background(MaterialTheme.colorScheme.errorContainer, CardDefaults.shape).padding(horizontal = 20.dp),
+                contentAlignment = if (start) Alignment.CenterStart else Alignment.CenterEnd,
+            ) {
+                Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.onErrorContainer)
+            }
+        },
+    ) { content() }
 }
 
 @Composable
@@ -504,25 +545,10 @@ private fun RuleDialog(vm: MainViewModel, initial: UserRuleEntity, onDismiss: ()
                     FilterChip(!asTransfer, { asTransfer = false }, label = { Text("Category") })
                     FilterChip(asTransfer, { asTransfer = true }, label = { Text("Transfer") })
                 }
-                Text("Labels", style = MaterialTheme.typography.labelLarge)
                 // Labels on the rule that Wallet no longer lists still show, so they can be removed.
                 val shown = labels.map { it.id to it.name } + chosenLabels.filterKeys { id -> labels.none { it.id == id } }.toList()
-                if (shown.isEmpty()) {
-                    Text("No labels loaded from Wallet.", style = MaterialTheme.typography.bodySmall)
-                } else {
-                    // Capped and scrollable so a long label list can't push the category picker out of the dialog.
-                    FlowRow(
-                        Modifier.heightIn(max = 120.dp).verticalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        shown.forEach { (id, name) ->
-                            FilterChip(
-                                selected = id in chosenLabels,
-                                onClick = { chosenLabels = if (id in chosenLabels) chosenLabels - id else chosenLabels + (id to name) },
-                                label = { Text(name) },
-                            )
-                        }
-                    }
+                LabelPicker(shown, chosenLabels) { id, name ->
+                    chosenLabels = if (id in chosenLabels) chosenLabels - id else chosenLabels + (id to name)
                 }
                 if (asTransfer) {
                     // Wallet creates the other side of the transfer there, which it won't do in a bank-synced account.
@@ -765,6 +791,36 @@ private fun AccountPicker(currency: String, options: List<AccountEntity>, select
                 )
             }
             if (selected != null) DropdownMenuItem(text = { Text("Clear") }, onClick = { onSelect(null); expanded = false })
+        }
+    }
+}
+
+/** Multi-select drop-down of Wallet labels. [options] and [chosen] are id -> name; the menu stays open while ticking. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun LabelPicker(options: List<Pair<String, String>>, chosen: Map<String, String>, onToggle: (String, String) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    ExposedDropdownMenuBox(expanded, { expanded = it }) {
+        OutlinedTextField(
+            value = if (chosen.isEmpty()) "None" else options.filter { it.first in chosen }.joinToString(", ") { it.second },
+            // One line, so many or long labels can't stretch the dialog past its buttons.
+            onValueChange = {}, readOnly = true, singleLine = true,
+            label = { Text("Labels") },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
+            modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable),
+        )
+        ExposedDropdownMenu(expanded, { expanded = false }) {
+            if (options.isEmpty()) DropdownMenuItem(
+                text = { Text("No labels loaded. Add your token in Settings and tap Refresh.") },
+                onClick = { expanded = false },
+            )
+            options.forEach { (id, name) ->
+                DropdownMenuItem(
+                    text = { Text(name) },
+                    leadingIcon = { Checkbox(checked = id in chosen, onCheckedChange = null) },
+                    onClick = { onToggle(id, name) },
+                )
+            }
         }
     }
 }

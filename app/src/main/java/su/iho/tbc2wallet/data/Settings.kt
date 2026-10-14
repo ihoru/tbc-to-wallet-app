@@ -46,6 +46,11 @@ class Settings(context: Context) {
         get() = mapping.getStringSet("seen_currencies", setOf("GEL")) ?: setOf("GEL")
         set(value) = mapping.edit().putStringSet("seen_currencies", value).apply()
 
+    /** Learned payees you removed; the daily re-learn skips them. Backed up with the mapping. */
+    var forgottenPayees: Set<String>
+        get() = mapping.getStringSet("forgotten_payees", emptySet()) ?: emptySet()
+        set(value) = mapping.edit().putStringSet("forgotten_payees", value).apply()
+
     /** One-time move for installs that kept the mapping in "settings" before it was backed up. */
     private fun moveMappingOutOfSettings() {
         val old = prefs.all.filterKeys { it.startsWith("account_") || it == "seen_currencies" }

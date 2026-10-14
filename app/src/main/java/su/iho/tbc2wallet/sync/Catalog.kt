@@ -71,14 +71,15 @@ class Catalog(private val context: Context) {
             .toMap()
 
         val learned = PayeeLearner.learn(history, settings.unknownCategoryIds, assignedByApp)
-        dao.replaceLearned(learned.values.map {
+        val forgotten = settings.forgottenPayees
+        dao.replaceLearned(learned.values.filter { it.payeeKey !in forgotten }.map {
             LearnedEntity(it.payeeKey, it.categoryId, it.categoryName, it.votes, it.totalVotes)
         })
         settings.lastLearnRefresh = System.currentTimeMillis()
     }
 
     fun catalogStale() = System.currentTimeMillis() - settings.lastCatalogRefresh > DAY_MS
-    fun learnedStale() = System.currentTimeMillis() - settings.lastLearnRefresh > 7 * DAY_MS
+    fun learnedStale() = System.currentTimeMillis() - settings.lastLearnRefresh > DAY_MS
 
     private companion object { const val DAY_MS = 24 * 60 * 60 * 1000L }
 }
