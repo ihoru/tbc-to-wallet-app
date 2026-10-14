@@ -60,14 +60,14 @@ class TransferRuleScreenshots {
         ))
         dao.insertUserRule(UserRuleEntity(
             pattern = "John Smith", matchType = "EXACT", appliesTo = "INCOME", categoryId = "", categoryName = "",
-            transferAccountId = "acc-eur", transferAccountName = "Revolut",
+            transferAccountId = "acc-eur", transferAccountName = "Revolut (EUR)",
         ))
         val now = System.currentTimeMillis()
         dao.insertIfNew(TransactionEntity(
             dedupKey = "t1", kind = "INCOME", amount = "200.00", currency = "GEL", counterParty = "John Smith",
             accountLabel = "TBC CARD", cardLast4 = null, recordDateUtc = "2026-09-29T08:00:00Z", rawText = "",
             status = TxStatus.SENT, walletRecordId = "r1", categorySource = SyncWorker.TRANSFER_SOURCE,
-            categoryName = "Revolut", receivedAt = now,
+            categoryName = "Revolut (EUR)", receivedAt = now,
         ))
         dao.insertIfNew(TransactionEntity(
             dedupKey = "t2", kind = "EXPENSE", amount = "42.10", currency = "GEL", counterParty = "Shopsy",
@@ -86,7 +86,7 @@ class TransferRuleScreenshots {
     private fun showRules() {
         showApp()
         compose.onNodeWithText("Rules").performClick()
-        compose.waitUntilAtLeastOneExists(hasText("→ Transfer with Revolut"), 5_000)
+        compose.waitUntilAtLeastOneExists(hasText("→ Transfer with Revolut (EUR)"), 5_000)
     }
 
     @Test fun activityTab() {

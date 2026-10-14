@@ -781,7 +781,8 @@ private fun TransferAccountPicker(
             options.forEach { acc ->
                 DropdownMenuItem(
                     text = { Text("${acc.name} (${acc.currency})") },
-                    onClick = { onSelect(acc.id to acc.name); expanded = false },
+                    // Stored with the currency so two accounts with the same name ("Cash") stay distinguishable.
+                    onClick = { onSelect(acc.id to "${acc.name} (${acc.currency})"); expanded = false },
                 )
             }
         }
