@@ -17,8 +17,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.background
-import androidx.compose.foundation.interaction.PressInteraction
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Column
@@ -78,7 +76,6 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SwipeToDismissBox
-import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -104,6 +101,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -451,28 +449,6 @@ private fun RulesScreen(vm: MainViewModel, onEdit: (UserRuleEntity) -> Unit) {
     }
 }
 
-/** Swiping either way asks [onSwiped] to confirm; the card springs back until the row is really gone. */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun SwipeToDelete(onSwiped: () -> Unit, content: @Composable () -> Unit) {
-    val state = rememberSwipeToDismissBoxState(confirmValueChange = {
-        if (it != SwipeToDismissBoxValue.Settled) onSwiped()
-        false
-    })
-    SwipeToDismissBox(
-        state = state,
-        backgroundContent = {
-            val start = state.dismissDirection == SwipeToDismissBoxValue.StartToEnd
-            Box(
-                Modifier.fillMaxSize().background(MaterialTheme.colorScheme.errorContainer, CardDefaults.shape).padding(horizontal = 20.dp),
-                contentAlignment = if (start) Alignment.CenterStart else Alignment.CenterEnd,
-            ) {
-                Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.onErrorContainer)
-            }
-        },
-    ) { content() }
-}
-
 @Composable
 private fun RuleRow(rule: UserRuleEntity, clashing: Boolean, onEdit: () -> Unit, onDelete: () -> Unit) {
     Card(Modifier.fillMaxWidth().clickable(onClick = onEdit)) {
@@ -621,6 +597,8 @@ private fun RuleDialog(vm: MainViewModel, initial: UserRuleEntity, onDismiss: ()
                 } else {
                     // Wallet-style picker on its own screen; the field shows the pick with its badge.
                     val shown = selected?.let { s -> categories.firstOrNull { it.id == s.id } ?: s }
+                    // A plain click target over the read-only field, so TalkBack announces it as a button.
+                    Box {
                     OutlinedTextField(
                         value = shown?.displayName ?: "",
                         onValueChange = {},
@@ -629,10 +607,10 @@ private fun RuleDialog(vm: MainViewModel, initial: UserRuleEntity, onDismiss: ()
                         placeholder = { Text("Choose…") },
                         leadingIcon = shown?.let { c -> { CategoryIcon(c.systemId ?: c.groupId ?: c.name, c.color, 28.dp) } },
                         trailingIcon = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null) },
-                        interactionSource = remember { MutableInteractionSource() }.also { src ->
-                            LaunchedEffect(src) { src.interactions.collect { if (it is PressInteraction.Release) picking = true } }
-                        },
+                        modifier = Modifier.fillMaxWidth(),
                     )
+                    Box(Modifier.matchParentSize().padding(top = 8.dp).clickable(onClickLabel = "Choose category", role = Role.Button) { picking = true })
+                    }
                     if (picking) CategoryPickerDialog(categories, onPick = { selected = it; picking = false }, onDismiss = { picking = false })
                 }
             }

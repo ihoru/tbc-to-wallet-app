@@ -18,6 +18,7 @@ import su.iho.tbc2wallet.categorize.UserRule
 import su.iho.tbc2wallet.categorize.WalletRule
 import su.iho.tbc2wallet.data.RulesBackup
 import su.iho.tbc2wallet.data.CategoryEntity
+import su.iho.tbc2wallet.data.displayName
 import su.iho.tbc2wallet.parse.TbcNotificationParser
 import su.iho.tbc2wallet.parse.TxKind
 import org.junit.Assert.assertEquals
@@ -247,6 +248,15 @@ class CategoryIconTest {
 }
 
 class CategoryTreeTest {
+    @Test fun `display name keeps the Wallet group`() {
+        fun cat(name: String, sys: String?, parent: String? = null) =
+            CategoryEntity(name, name, parent, groupId = "food_and_drinks", groupName = "Food & Drinks", systemId = sys)
+        assertEquals("Food & Drinks › Groceries", cat("Groceries", "food_and_drinks__groceries").displayName)
+        assertEquals("Food & Drinks", cat("Food & Drinks", "food_and_drinks").displayName)
+        assertEquals("Bar, cafe › Tea", cat("Tea", null, parent = "Bar, cafe").displayName)
+        assertEquals("Gifts", CategoryEntity("g", "Gifts", null).displayName)
+    }
+
     private val cats = listOf(
         CategoryEntity("3", "Restaurant", "Food & Drinks"),
         CategoryEntity("1", "Food & Drinks", null),

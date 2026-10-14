@@ -62,7 +62,7 @@ class RulesScreenshots {
         dao.replaceCategories(listOf(
             CategoryEntity("food", "Restaurant, fast-food", "Food & Drinks"),
             CategoryEntity("groceries", "Groceries", "Food & Drinks"),
-            CategoryEntity("taxi", "Taxi", "Transportation"),
+            CategoryEntity("taxi", "Taxi", null, groupId = "transportation", groupName = "Transportation", color = "#455a64", systemId = "transportation__taxi"),
             CategoryEntity("fuel", "Fuel", "Vehicle"),
         ))
         dao.replaceLabels(listOf(LabelEntity("l1", "delivery"), LabelEntity("l2", "weekly"), LabelEntity("l3", "work"), LabelEntity("l4", "trip")))

@@ -105,8 +105,17 @@ data class CategoryEntity(
     val systemId: String? = null,
 )
 
+/**
+ * How the category reads outside the picker: "Bar, cafe › Tea" for a custom subcategory,
+ * "Food & Drinks › Groceries" for a category inside a Wallet group, and just the name for
+ * a group's own category or one with no group.
+ */
 val CategoryEntity.displayName: String
-    get() = if (parentName.isNullOrBlank()) name else "$parentName › $name"
+    get() = when {
+        !parentName.isNullOrBlank() -> "$parentName › $name"
+        !groupName.isNullOrBlank() && systemId != groupId && !groupName.equals(name, ignoreCase = true) -> "$groupName › $name"
+        else -> name
+    }
 
 @Entity(tableName = "labels")
 data class LabelEntity(
