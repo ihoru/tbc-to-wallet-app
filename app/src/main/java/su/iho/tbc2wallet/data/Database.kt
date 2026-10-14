@@ -1,6 +1,7 @@
 package su.iho.tbc2wallet.data
 
 import android.content.Context
+import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
@@ -47,6 +48,7 @@ data class TransactionEntity(
     val categorySource: String? = null,
     val error: String? = null,
     val receivedAt: Long,
+    @ColumnInfo(defaultValue = "0") val isFake: Boolean = false,    // typed in by hand from the Activity tab to test parsing and rules
 )
 
 @Entity(tableName = "user_rules")
@@ -128,6 +130,9 @@ abstract class AppDao {
     @Query("SELECT dedupKey, walletRecordId, categoryId FROM transactions WHERE walletRecordId IS NOT NULL")
     abstract suspend fun sentAssignments(): List<SentAssignment>
 
+    @Query("SELECT walletRecordId FROM transactions WHERE isFake = 1 AND walletRecordId IS NOT NULL")
+    abstract suspend fun fakeWalletRecordIds(): List<String>
+
     @Upsert abstract suspend fun upsertTx(tx: TransactionEntity)
 
     @Query("UPDATE transactions SET status = :status, error = NULL WHERE dedupKey = :key")
@@ -179,7 +184,7 @@ data class SentAssignment(val dedupKey: String, val walletRecordId: String?, val
         TransactionEntity::class, UserRuleEntity::class, WalletRuleEntity::class,
         LearnedEntity::class, CategoryEntity::class, AccountEntity::class, LabelEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -189,25 +194,32 @@ abstract class AppDatabase : RoomDatabase() {
         @Volatile private var instance: AppDatabase? = null
         fun get(context: Context): AppDatabase = instance ?: synchronized(this) {
             instance ?: Room.databaseBuilder(context.applicationContext, AppDatabase::class.java, "tbc2wallet.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                .addMigrations(*(1..3).map(::catchUp).toTypedArray())
                 .build().also { instance = it }
         }
 
-        /** Rules can set Wallet labels; labels are cached like categories. */
-        private val MIGRATION_1_2 = object : Migration(1, 2) {
+        /**
+         * Version 2 and 3 were reached by different branches (fake transactions; rule labels;
+         * transfer rules), so a phone may be on any mix of them. Every old version jumps straight
+         * to the current one and adds only what's missing.
+         */
+        private fun catchUp(from: Int) = object : Migration(from, 4) {
             override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL("ALTER TABLE user_rules ADD COLUMN labelIds TEXT NOT NULL DEFAULT ''")
-                db.execSQL("ALTER TABLE user_rules ADD COLUMN labelNames TEXT NOT NULL DEFAULT ''")
+                db.addColumnIfMissing("transactions", "isFake", "INTEGER NOT NULL DEFAULT 0")
+                db.addColumnIfMissing("user_rules", "labelIds", "TEXT NOT NULL DEFAULT ''")
+                db.addColumnIfMissing("user_rules", "labelNames", "TEXT NOT NULL DEFAULT ''")
+                db.addColumnIfMissing("user_rules", "transferAccountId", "TEXT")
+                db.addColumnIfMissing("user_rules", "transferAccountName", "TEXT")
                 db.execSQL("CREATE TABLE IF NOT EXISTS labels (id TEXT NOT NULL, name TEXT NOT NULL, PRIMARY KEY(id))")
             }
         }
 
-        /** Rules can turn a match into a transfer with another Wallet account. */
-        private val MIGRATION_2_3 = object : Migration(2, 3) {
-            override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL("ALTER TABLE user_rules ADD COLUMN transferAccountId TEXT")
-                db.execSQL("ALTER TABLE user_rules ADD COLUMN transferAccountName TEXT")
+        private fun SupportSQLiteDatabase.addColumnIfMissing(table: String, column: String, type: String) {
+            val exists = query("PRAGMA table_info($table)").use { c ->
+                val name = c.getColumnIndexOrThrow("name")
+                generateSequence { if (c.moveToNext()) c.getString(name) else null }.any { it == column }
             }
+            if (!exists) execSQL("ALTER TABLE $table ADD COLUMN $column $type")
         }
     }
 }

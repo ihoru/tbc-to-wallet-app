@@ -59,10 +59,13 @@ class Catalog(private val context: Context) {
             if (unknown.isNotEmpty()) settings.unknownCategoryIds = unknown
         }
 
-        // A transfer's category is Wallet's, not a choice made for the payee, so it isn't learned.
-        val history = api.records(from).filter { it.transfer == null }.map {
-            PayeeLearner.HistoryRecord(it.id, it.counterParty, it.category?.id, it.category?.name)
-        }
+        // Simulated records must never teach the payee map. The note marker also catches fakes
+        // whose Wallet id never reached this device (lost response, reinstall).
+        // A transfer's category is Wallet's, not a choice made for the payee, so it isn't learned either.
+        val fakeIds = dao.fakeWalletRecordIds().toSet()
+        val history = api.records(from)
+            .filter { it.transfer == null && it.id !in fakeIds && it.note?.startsWith(SyncWorker.FAKE_NOTE_MARKER) != true }
+            .map { PayeeLearner.HistoryRecord(it.id, it.counterParty, it.category?.id, it.category?.name) }
         val assignedByApp = dao.sentAssignments()
             .mapNotNull { a -> a.walletRecordId?.let { it to a.categoryId } }
             .toMap()

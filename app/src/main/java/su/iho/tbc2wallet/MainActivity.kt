@@ -1,7 +1,9 @@
 package su.iho.tbc2wallet
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS
@@ -33,6 +35,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -48,6 +51,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
@@ -86,8 +90,10 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.lifecycle.compose.LifecycleResumeEffect
+import su.iho.tbc2wallet.categorize.CategoryTree
 import su.iho.tbc2wallet.data.AccountEntity
 import su.iho.tbc2wallet.categorize.CategoryResolver
 import su.iho.tbc2wallet.categorize.RuleClash
@@ -128,6 +134,7 @@ private enum class Tab(val label: String) { ACTIVITY("Activity"), RULES("Rules")
 internal fun App(vm: MainViewModel) { // internal for the screenshot tests
     var tab by rememberSaveable { mutableStateOf(if (vm.settings.hasToken) Tab.ACTIVITY else Tab.SETTINGS) }
     var ruleDraft by remember { mutableStateOf<UserRuleEntity?>(null) } // non-null = rule dialog open; id 0 = new rule
+    var simulating by rememberSaveable { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
     val message by vm.message.collectAsState()
     val busy by vm.busy.collectAsState()
@@ -156,6 +163,11 @@ internal fun App(vm: MainViewModel) { // internal for the screenshot tests
         },
         floatingActionButton = {
             if (tab == Tab.RULES) FloatingActionButton(onClick = { ruleDraft = newRule("") }) { Icon(Icons.Default.Add, "Add rule") }
+            if (tab == Tab.ACTIVITY) ExtendedFloatingActionButton(
+                onClick = { simulating = true },
+                icon = { Icon(Icons.Default.Add, null) },
+                text = { Text("Fake") },
+            )
         },
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
@@ -171,6 +183,10 @@ internal fun App(vm: MainViewModel) { // internal for the screenshot tests
     ruleDraft?.let { draft ->
         RuleDialog(vm, initial = draft, onDismiss = { ruleDraft = null })
     }
+    if (simulating) FakeNotificationDialog(
+        onSubmit = { vm.simulateNotification(it); simulating = false },
+        onDismiss = { simulating = false },
+    )
 }
 
 private fun newRule(pattern: String) =
@@ -184,10 +200,11 @@ private val dateFmt = DateTimeFormatter.ofPattern("dd MMM HH:mm")
 private fun ActivityScreen(vm: MainViewModel, onMakeRule: (String) -> Unit) {
     val txs by vm.transactions.collectAsState()
     if (txs.isEmpty()) {
-        EmptyState("No TBC transactions yet.\nThey'll appear here as notifications arrive.")
+        EmptyState("No TBC transactions yet.\nThey'll appear here as notifications arrive.\nTap Fake to try one by hand.")
         return
     }
-    LazyColumn(contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    // Extra bottom space so the Fake button never covers the last card's actions.
+    LazyColumn(contentPadding = PaddingValues(start = 12.dp, top = 12.dp, end = 12.dp, bottom = 88.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         items(txs, key = { it.dedupKey }) { tx -> TransactionCard(tx, vm, onMakeRule) }
     }
 }
@@ -213,6 +230,10 @@ private fun TransactionCard(tx: TransactionEntity, vm: MainViewModel, onMakeRule
                 Text("$date · ${tx.accountLabel.orEmpty()}", style = MaterialTheme.typography.bodySmall)
                 Text(categoryLine(tx), style = MaterialTheme.typography.bodySmall)
             }
+            if (tx.isFake) Text(
+                "Fake · typed in by hand, not from TBC",
+                color = MaterialTheme.colorScheme.tertiary, style = MaterialTheme.typography.labelMedium,
+            )
             tx.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 AssistChip(onClick = {}, label = { Text(statusLabel(tx.status)) })
@@ -244,6 +265,43 @@ private fun statusLabel(s: TxStatus) = when (s) {
     TxStatus.FAILED -> "Failed"
     TxStatus.UNPARSED -> "Unreadable"
     TxStatus.IGNORED -> "Ignored"
+}
+
+/** A purchase dated now in Tbilisi time, so the simulated record lands in today's Wallet activity. */
+private fun fakeSample(): String {
+    val now = java.time.ZonedDateTime.now(su.iho.tbc2wallet.ingest.Ingest.BANK_ZONE)
+    val stamp = now.format(DateTimeFormatter.ofPattern("dd/MM/yy HH:mm"))
+    return "42.10 GEL\nTBC CARD VISA GOLD (***1234)\nShopsy $stamp\nBalance: 1500.00 GEL"
+}
+
+@Composable
+private fun FakeNotificationDialog(onSubmit: (String) -> Unit, onDismiss: () -> Unit) {
+    var text by rememberSaveable { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Fake notification") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "Paste or type the text of a TBC notification. It goes through the parser and rules " +
+                        "like a real one, then goes to Wallet marked [fake] in the note and, when Wallet allows it, " +
+                        "with the \"fake\" label.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                OutlinedTextField(
+                    text, { text = it },
+                    label = { Text("Notification text") },
+                    placeholder = { Text(fakeSample(), fontFamily = FontFamily.Monospace) },
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+                    minLines = 4,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                TextButton(onClick = { text = fakeSample() }) { Text("Use sample") }
+            }
+        },
+        confirmButton = { TextButton(enabled = text.isNotBlank(), onClick = { onSubmit(text) }) { Text("Simulate") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 // ---------------------------------------------------------------- Rules
@@ -482,18 +540,7 @@ private fun RuleDialog(vm: MainViewModel, initial: UserRuleEntity, onDismiss: ()
                         onValueChange = { query = it; selected = null },
                         label = { Text("Category") }, singleLine = true,
                     )
-                    if (selected == null) {
-                        val matches = categories.filter { it.displayName.contains(query, ignoreCase = true) }.take(50)
-                        LazyColumn(Modifier.heightIn(max = 220.dp)) {
-                            items(matches, key = { it.id }) { c ->
-                                Text(
-                                    c.displayName,
-                                    Modifier.fillMaxWidth().clickable { selected = c }.padding(vertical = 8.dp),
-                                )
-                                HorizontalDivider()
-                            }
-                        }
-                    }
+                    if (selected == null) CategoryTreeList(categories, query, onSelect = { selected = it })
                 }
             }
         },
@@ -526,6 +573,67 @@ private fun RuleDialog(vm: MainViewModel, initial: UserRuleEntity, onDismiss: ()
     )
 }
 
+/**
+ * Categories as a tree: parents collapsed by default, tap the arrow to show subcategories.
+ * While searching, every parent with a match is shown expanded.
+ */
+@Composable
+private fun CategoryTreeList(categories: List<CategoryEntity>, query: String, onSelect: (CategoryEntity) -> Unit) {
+    val tree = remember(categories) { CategoryTree.build(categories) }
+    val shown = remember(tree, query) { CategoryTree.filter(tree, query) }
+    val searching = query.isNotBlank()
+    var expanded by remember { mutableStateOf(emptySet<String>()) }
+
+    LazyColumn(Modifier.heightIn(max = 260.dp)) {
+        shown.forEach { node ->
+            val open = searching || node.name in expanded
+            item(key = "p:${node.name}") {
+                Row(
+                    Modifier.fillMaxWidth().clickable {
+                        val c = node.category
+                        if (c != null) onSelect(c)
+                        else expanded = if (node.name in expanded) expanded - node.name else expanded + node.name
+                    },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (node.children.isEmpty()) Spacer(Modifier.width(48.dp))
+                    else IconButton(
+                        onClick = { expanded = if (node.name in expanded) expanded - node.name else expanded + node.name },
+                        enabled = !searching,
+                    ) {
+                        Icon(
+                            if (open) Icons.Default.KeyboardArrowDown else Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            if (open) "Collapse ${node.name}" else "Expand ${node.name}",
+                        )
+                    }
+                    Text(
+                        node.name,
+                        Modifier.weight(1f).padding(vertical = 8.dp),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = if (node.category == null) MaterialTheme.colorScheme.onSurfaceVariant
+                        else MaterialTheme.colorScheme.onSurface,
+                    )
+                    if (node.children.isNotEmpty()) Text(
+                        "${node.children.size}",
+                        Modifier.padding(end = 8.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                HorizontalDivider()
+            }
+            if (open) items(node.children, key = { it.id }) { c ->
+                Text(
+                    c.name,
+                    Modifier.fillMaxWidth().clickable { onSelect(c) }.padding(start = 48.dp, top = 8.dp, bottom = 8.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                HorizontalDivider(Modifier.padding(start = 48.dp))
+            }
+        }
+    }
+}
+
 // ---------------------------------------------------------------- Settings
 
 @Composable
@@ -534,31 +642,46 @@ private fun SettingsScreen(vm: MainViewModel) {
     val accounts by vm.accounts.collectAsState()
     val version by vm.settingsVersion.collectAsState()
     var hasAccess by remember { mutableStateOf(vm.hasNotificationAccess()) }
-    LifecycleResumeEffect(Unit) { hasAccess = vm.hasNotificationAccess(); onPauseOrDispose {} }
+    var canAlert by remember { mutableStateOf(canPostNotifications(context)) }
+    LifecycleResumeEffect(Unit) {
+        hasAccess = vm.hasNotificationAccess()
+        canAlert = canPostNotifications(context)
+        onPauseOrDispose {}
+    }
 
-    val notifPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+    val notifPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { canAlert = it }
+    // Steps are numbered from 1 whichever ones are shown; the access step disappears once everything is granted.
+    val showAccess = !hasAccess || !canAlert
+    val step = if (showAccess) 1 else 0
 
     Column(
         Modifier.verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Section("1. Notification access") {
-            Text(if (hasAccess) "Granted — TBC notifications are being read." else "Needed to read TBC notifications.")
-            if (!hasAccess) Button(onClick = { context.startActivity(Intent(ACTION_NOTIFICATION_LISTENER_SETTINGS)) }) {
-                Text("Open notification access")
+        if (showAccess) Section("1. Notification access") {
+            if (!hasAccess) {
+                Text("Needed to read TBC notifications.")
+                Button(onClick = { context.startActivity(Intent(ACTION_NOTIFICATION_LISTENER_SETTINGS)) }) {
+                    Text("Open notification access")
+                }
             }
-            if (Build.VERSION.SDK_INT >= 33) OutlinedButton(onClick = { notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS) }) {
+            if (!canAlert) OutlinedButton(onClick = { notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS) }) {
                 Text("Allow alerts when something needs attention")
             }
         }
 
-        Section("2. Wallet API token") {
+        Section("${step + 1}. Wallet API token") {
             var token by remember { mutableStateOf("") }
             Text(
                 if (vm.settings.hasToken) "Token saved (encrypted on this phone)." else
-                    "Create one in Wallet web → Settings → REST API (Premium plan).",
+                    "Create one in Wallet web (Premium plan), then paste it here.",
                 style = MaterialTheme.typography.bodySmall,
             )
+            val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
+            TextButton(
+                onClick = { uriHandler.openUri("https://web.budgetbakers.com/settings/rest-api/create-token") },
+                contentPadding = PaddingValues(0.dp),
+            ) { Text("Get a token on Wallet web") }
             OutlinedTextField(
                 value = token, onValueChange = { token = it },
                 label = { Text(if (vm.settings.hasToken) "Replace token" else "Paste token") },
@@ -572,7 +695,7 @@ private fun SettingsScreen(vm: MainViewModel) {
             }
         }
 
-        Section("3. Where each currency goes") {
+        Section("${step + 2}. Where each currency goes") {
             key(version) {
                 val currencies = vm.settings.seenCurrencies.sorted()
                 if (accounts.isEmpty()) Text("Connect your token to load accounts.", style = MaterialTheme.typography.bodySmall)
@@ -605,6 +728,10 @@ private fun SettingsScreen(vm: MainViewModel) {
         }
     }
 }
+
+private fun canPostNotifications(context: Context): Boolean =
+    Build.VERSION.SDK_INT < 33 ||
+        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

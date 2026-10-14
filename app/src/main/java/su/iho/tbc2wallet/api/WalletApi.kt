@@ -6,6 +6,11 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
@@ -98,6 +103,23 @@ class WalletApi(private val token: String) {
 
     suspend fun labels(): List<Label> = paged { offset ->
         get<LabelsPage>("labels", "limit" to "200", "offset" to "$offset").let { it.labels to it.nextOffset }
+    }
+
+    /**
+     * Creates a label (`POST /v1/api/labels` with one object) and returns its id.
+     */
+    suspend fun createLabel(name: String): String? {
+        val body = json.encodeToString(mapOf("name" to name)).toRequestBody(JSON)
+        val request = Request.Builder().url(url("labels")).post(body).auth().build()
+        return execute(request, acceptedCodes = setOf(200, 201, 207)) { text ->
+            val root = json.parseToJsonElement(text)
+            fun JsonElement.id(): String? = (this as? JsonObject)?.get("id")?.jsonPrimitive?.contentOrNull
+            // The spec documents {"label": {"id": ...}}; also accept the batch envelope other writes use.
+            val obj = root as? JsonObject
+            obj?.get("label")?.id()
+                ?: obj?.get("results")?.jsonArray?.firstOrNull()?.id()
+                ?: root.id()
+        }
     }
 
     /** Records on or after [fromDate] (YYYY-MM-DD). [categoryId] may be "unknown". */

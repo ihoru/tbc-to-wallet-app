@@ -11,6 +11,7 @@ import su.iho.tbc2wallet.data.Settings
 import su.iho.tbc2wallet.data.TransactionEntity
 import su.iho.tbc2wallet.data.TxStatus
 import su.iho.tbc2wallet.data.UserRuleEntity
+import su.iho.tbc2wallet.ingest.Ingest
 import su.iho.tbc2wallet.ingest.TbcNotificationListener
 import su.iho.tbc2wallet.sync.Catalog
 import su.iho.tbc2wallet.sync.SyncWorker
@@ -53,6 +54,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun saveToken(token: String) {
         settings.apiToken = token
+        settings.recentFakeLabel = null   // it belonged to the previous token's Wallet
         _settingsVersion.value++
         refreshFromWallet(learn = true)
     }
@@ -92,6 +94,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun retry(tx: TransactionEntity) = viewModelScope.launch {
         dao.setStatus(tx.dedupKey, TxStatus.PENDING); SyncWorker.enqueue(getApplication())
+    }
+
+    /** Runs typed-in text through the same path as a real TBC notification, marked as fake. */
+    fun simulateNotification(text: String) = viewModelScope.launch {
+        val now = System.currentTimeMillis()
+        Ingest.handle(getApplication(), text.trim(), notificationKey = "fake", whenMillis = now, postTime = now, fake = true)
     }
 
     fun ignore(tx: TransactionEntity) = viewModelScope.launch { dao.setStatus(tx.dedupKey, TxStatus.IGNORED) }
