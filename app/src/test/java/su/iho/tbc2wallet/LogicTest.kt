@@ -1,5 +1,6 @@
 package su.iho.tbc2wallet
 
+import su.iho.tbc2wallet.api.WalletApi
 import su.iho.tbc2wallet.categorize.AppliesTo
 import su.iho.tbc2wallet.categorize.CategoryResolver
 import su.iho.tbc2wallet.categorize.CategorySource
@@ -12,6 +13,7 @@ import su.iho.tbc2wallet.parse.TbcNotificationParser
 import su.iho.tbc2wallet.parse.TxKind
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.math.BigDecimal
 import java.time.LocalDate
@@ -100,6 +102,19 @@ class ResolverTest {
         assertEquals(emptyList<String>(), r.resolve(TxKind.EXPENSE, "CITY GYM", null).labelIds)
     }
 
+    @Test fun transferRuleSendsNoCategory() {
+        val r = CategoryResolver(
+            listOf(UserRule("john smith", MatchType.EXACT, AppliesTo.INCOME, "", "", transferAccountId = "acc-usd", transferAccountName = "Cash USD")),
+            wallet, learned,
+        )
+        val d = r.resolve(TxKind.INCOME, "John Smith", null)
+        assertEquals("acc-usd", d.transferAccountId)
+        assertEquals("Cash USD", d.transferAccountName)
+        assertNull(d.categoryId)
+        assertEquals(CategorySource.USER_RULE, d.source)
+        assertNull(r.resolve(TxKind.EXPENSE, "John Smith", null).transferAccountId) // income-only rule
+    }
+
     private fun rule(p: String, m: MatchType = MatchType.CONTAINS, s: AppliesTo = AppliesTo.ANY, cat: String = "c1", labels: List<String> = emptyList()) =
         UserRule(p, m, s, cat, cat, labels)
 
@@ -129,6 +144,12 @@ class ResolverTest {
         assertEquals(0, RuleClashes.find(listOf(rule("wolt", s = AppliesTo.EXPENSE), rule("wolt", s = AppliesTo.INCOME, cat = "c2"))) { it }.size)
         assertEquals(0, RuleClashes.find(listOf(rule("wolt"), rule("glovo", cat = "c2"))) { it }.size)
         assertEquals(0, RuleClashes.find(listOf(rule("wolt", MatchType.EXACT), rule("wolt market", MatchType.EXACT, cat = "c2"))) { it }.size)
+    }
+
+    @Test fun differentTransferAccountsClash() {
+        val toCash = rule("wolt", cat = "").copy(transferAccountId = "acc-cash")
+        assertEquals(1, RuleClashes.find(listOf(toCash, toCash.copy(transferAccountId = "acc-card"))) { it }.size)
+        assertEquals(0, RuleClashes.find(listOf(toCash, toCash.copy(pattern = "WOLT"))) { it }.size)
     }
 
     @Test fun equalPriorityTieGoesToOlderRule() {
@@ -164,5 +185,17 @@ class ResolverTest {
             assignedByApp = mapOf("c" to "cat-food"),
         )
         assertEquals("cat-restaurant", map.getValue("WOLT").categoryId)
+    }
+}
+
+class WalletJsonTest {
+    @Test fun transferRecordCarriesPairingMode() {
+        val record = WalletApi.NewRecord(
+            accountId = "acc-gel", amount = WalletApi.Amount(-20.0, "GEL"), recordDate = "2026-09-29T08:00:00Z",
+            transfer = WalletApi.Transfer("acc-usd", pairingMode = "new"),
+        )
+        val json = WalletApi.json.encodeToString(WalletApi.NewRecord.serializer(), record)
+        assertTrue(json, json.contains(""""transfer":{"accountId":"acc-usd","pairingMode":"new"}"""))
+        assertTrue(json, !json.contains("categoryId"))
     }
 }

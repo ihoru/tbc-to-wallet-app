@@ -2,7 +2,7 @@ package su.iho.tbc2wallet.categorize
 
 /**
  * Two of your rules clash when one payee can match both, for the same kind of transaction,
- * but they set a different category or different labels. Only one of them is applied
+ * but they set a different category, transfer account or labels. Only one of them is applied
  * ([winner], per [CategoryResolver.RULE_PRIORITY]), which is easy to miss.
  */
 data class RuleClash<T>(val first: T, val second: T, val winner: T)
@@ -24,7 +24,8 @@ object RuleClashes {
         a.appliesTo == AppliesTo.ANY || b.appliesTo == AppliesTo.ANY || a.appliesTo == b.appliesTo
 
     private fun sameOutcome(a: UserRule, b: UserRule) =
-        a.categoryId == b.categoryId && a.labelIds.toSet() == b.labelIds.toSet()
+        a.categoryId == b.categoryId && a.transferAccountId == b.transferAccountId &&
+            a.labelIds.toSet() == b.labelIds.toSet()
 
     /**
      * Whether some payee obviously matches both. Two "contains" rules only count when one

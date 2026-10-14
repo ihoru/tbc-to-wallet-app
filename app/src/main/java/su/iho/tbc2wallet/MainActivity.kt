@@ -60,6 +60,8 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -230,6 +232,8 @@ private fun categoryLine(tx: TransactionEntity): String = when (tx.categorySourc
     "USER_RULE" -> "Category: ${tx.categoryName} · your rule"
     "WALLET_RULE" -> "Category: ${tx.categoryName} · Wallet rule"
     "LEARNED" -> "Category: ${tx.categoryName} · learned from history"
+    SyncWorker.TRANSFER_SOURCE ->
+        (if (tx.kind == "EXPENSE") "Transfer to " else "Transfer from ") + "${tx.categoryName} · your rule"
     else -> "Category: ${tx.categoryName}"
 }
 
@@ -321,7 +325,7 @@ private fun RuleRow(rule: UserRuleEntity, clashing: Boolean, onEdit: () -> Unit,
                 val scope = when (rule.appliesTo) { "EXPENSE" -> " · expenses"; "INCOME" -> " · income"; else -> "" }
                 Text("Payee $how “${rule.pattern}”$scope", style = MaterialTheme.typography.bodyMedium)
                 val labels = rule.labelNameList.joinToString("") { " · #$it" }
-                Text("→ ${rule.categoryName}$labels", style = MaterialTheme.typography.bodySmall)
+                Text("→ ${ruleTarget(rule)}$labels", style = MaterialTheme.typography.bodySmall)
             }
             if (clashing) Icon(Icons.Default.Warning, "Clashes with another rule", tint = MaterialTheme.colorScheme.error)
             IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, "Delete rule") }
@@ -335,7 +339,9 @@ private fun ruleSummary(rule: UserRuleEntity): String {
     return "payee $how “${rule.pattern}”$scope"
 }
 
-private fun ruleOutcome(rule: UserRuleEntity) = rule.categoryName + rule.labelNameList.joinToString("") { " #$it" }
+private fun ruleTarget(rule: UserRuleEntity) = rule.transferAccountName?.let { "Transfer with $it" } ?: rule.categoryName
+
+private fun ruleOutcome(rule: UserRuleEntity) = ruleTarget(rule) + rule.labelNameList.joinToString("") { " #$it" }
 
 /**
  * Short name for a rule on a clash button. Adds "exact" and the scope when set, and the category
@@ -401,6 +407,12 @@ private fun LearnedRow(entry: LearnedEntity, onClick: () -> Unit) {
 private fun RuleDialog(vm: MainViewModel, initial: UserRuleEntity, onDismiss: () -> Unit) {
     val categories by vm.categories.collectAsState()
     val labels by vm.labels.collectAsState()
+    val accounts by vm.accounts.collectAsState()
+    // A prefilled transfer account (id + name) is kept even if it's no longer in the loaded list.
+    var transferAccount by remember {
+        mutableStateOf(initial.transferAccountId?.let { it to (initial.transferAccountName ?: it) })
+    }
+    var asTransfer by remember { mutableStateOf(initial.transferAccountId != null) }
     // label id -> name; starts from the rule so its labels survive even if Wallet's list isn't loaded.
     var chosenLabels by remember { mutableStateOf(initial.labelIdList.zip(initial.labelNameList).toMap()) }
     val editing = initial.id != 0L
@@ -415,7 +427,7 @@ private fun RuleDialog(vm: MainViewModel, initial: UserRuleEntity, onDismiss: ()
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (editing) "Edit rule" else "Category rule") },
+        title = { Text(if (editing) "Edit rule" else "New rule") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(pattern, { pattern = it }, label = { Text("Payee text") }, singleLine = true)
@@ -427,6 +439,11 @@ private fun RuleDialog(vm: MainViewModel, initial: UserRuleEntity, onDismiss: ()
                     listOf("ANY" to "Any", "EXPENSE" to "Expenses", "INCOME" to "Income").forEach { (v, l) ->
                         FilterChip(appliesTo == v, { appliesTo = v }, label = { Text(l) })
                     }
+                }
+                Text("Record as", style = MaterialTheme.typography.labelLarge)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FilterChip(!asTransfer, { asTransfer = false }, label = { Text("Category") })
+                    FilterChip(asTransfer, { asTransfer = true }, label = { Text("Transfer") })
                 }
                 Text("Labels", style = MaterialTheme.typography.labelLarge)
                 // Labels on the rule that Wallet no longer lists still show, so they can be removed.
@@ -448,7 +465,16 @@ private fun RuleDialog(vm: MainViewModel, initial: UserRuleEntity, onDismiss: ()
                         }
                     }
                 }
-                if (categories.isEmpty() && selected == null) {
+                if (asTransfer) {
+                    // Wallet creates the other side of the transfer there, which it won't do in a bank-synced account.
+                    TransferAccountPicker(accounts.filterNot { it.isBankSync }, transferAccount) { transferAccount = it }
+                    Text(
+                        "An expense becomes a transfer to this account, income a transfer from it.",
+                        style = MaterialTheme.typography.bodySmall,
+                        // As wide as the field above; a long line would otherwise widen the whole dialog.
+                        modifier = Modifier.widthIn(max = OutlinedTextFieldDefaults.MinWidth),
+                    )
+                } else if (categories.isEmpty() && selected == null) {
                     Text("No categories loaded. Add your token in Settings and tap Refresh.", color = MaterialTheme.colorScheme.error)
                 } else {
                     OutlinedTextField(
@@ -473,11 +499,14 @@ private fun RuleDialog(vm: MainViewModel, initial: UserRuleEntity, onDismiss: ()
         },
         confirmButton = {
             TextButton(
-                enabled = pattern.isNotBlank() && selected != null,
+                enabled = pattern.isNotBlank() && if (asTransfer) transferAccount != null else selected != null,
                 onClick = {
+                    val transfer = transferAccount.takeIf { asTransfer }
                     vm.saveRule(initial.copy(
                         pattern = pattern, matchType = matchType, appliesTo = appliesTo,
-                        categoryId = selected!!.id, categoryName = selected!!.displayName,
+                        categoryId = if (transfer == null) selected!!.id else "",
+                        categoryName = if (transfer == null) selected!!.displayName else "",
+                        transferAccountId = transfer?.first, transferAccountName = transfer?.second,
                         labelIds = chosenLabels.keys.joinToString("\n"),
                         // Prefer Wallet's current name in case a label was renamed since the rule was saved.
                         labelNames = chosenLabels.map { (id, name) -> labels.firstOrNull { it.id == id }?.name ?: name }.joinToString("\n"),
@@ -598,6 +627,36 @@ private fun AccountPicker(currency: String, options: List<AccountEntity>, select
                 )
             }
             if (selected != null) DropdownMenuItem(text = { Text("Clear") }, onClick = { onSelect(null); expanded = false })
+        }
+    }
+}
+
+/** A Wallet account for the other side of a transfer. [selected] is (id, name). */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TransferAccountPicker(
+    options: List<AccountEntity>, selected: Pair<String, String>?, onSelect: (Pair<String, String>) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    ExposedDropdownMenuBox(expanded, { expanded = it }) {
+        OutlinedTextField(
+            value = selected?.second ?: "Choose account", onValueChange = {}, readOnly = true,
+            label = { Text("Other account") },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
+            // Default text field width, like the dialog's other fields, so switching modes doesn't resize it.
+            modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable),
+        )
+        ExposedDropdownMenu(expanded, { expanded = false }) {
+            if (options.isEmpty()) DropdownMenuItem(
+                text = { Text("No manual accounts loaded. Add your token in Settings and tap Refresh.") },
+                onClick = { expanded = false },
+            )
+            options.forEach { acc ->
+                DropdownMenuItem(
+                    text = { Text("${acc.name} (${acc.currency})") },
+                    onClick = { onSelect(acc.id to acc.name); expanded = false },
+                )
+            }
         }
     }
 }

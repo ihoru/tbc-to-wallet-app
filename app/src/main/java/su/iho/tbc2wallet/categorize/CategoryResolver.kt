@@ -11,6 +11,9 @@ data class CategoryDecision(
     val source: CategorySource,
     /** Wallet labels to put on the record; only your own rules set them. */
     val labelIds: List<String> = emptyList(),
+    /** When set, send a transfer to (expense) or from (income) this Wallet account instead of a category. */
+    val transferAccountId: String? = null,
+    val transferAccountName: String? = null,
 )
 
 enum class MatchType { CONTAINS, EXACT }
@@ -24,6 +27,9 @@ data class UserRule(
     val categoryId: String,
     val categoryName: String,
     val labelIds: List<String> = emptyList(),
+    /** When set, matches become transfers with this Wallet account; the category is ignored. */
+    val transferAccountId: String? = null,
+    val transferAccountName: String? = null,
 )
 
 /** A categorization rule defined in Wallet itself (GET /v1/api/record-rules). */
@@ -65,6 +71,9 @@ class CategoryResolver(
         if (payee.isEmpty()) return NONE
 
         userRules.firstOrNull { it.appliesTo(kind) && it.matches(payee) }?.let {
+            if (it.transferAccountId != null) {
+                return CategoryDecision(null, null, CategorySource.USER_RULE, it.labelIds, it.transferAccountId, it.transferAccountName)
+            }
             return CategoryDecision(it.categoryId, it.categoryName, CategorySource.USER_RULE, it.labelIds)
         }
 
