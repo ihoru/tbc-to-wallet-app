@@ -557,6 +557,8 @@ private fun RuleDialog(vm: MainViewModel, initial: UserRuleEntity, onDismiss: ()
     var selected by remember {
         mutableStateOf(initial.categoryId.takeIf { it.isNotEmpty() }?.let { CategoryEntity(it, initial.categoryName, null) })
     }
+    // The live catalog entry when there is one, so the field and the saved name use its current name and group.
+    val picked = selected?.let { s -> categories.firstOrNull { it.id == s.id } ?: s }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -596,16 +598,15 @@ private fun RuleDialog(vm: MainViewModel, initial: UserRuleEntity, onDismiss: ()
                     Text("No categories loaded. Add your token in Settings and tap Refresh.", color = MaterialTheme.colorScheme.error)
                 } else {
                     // Wallet-style picker on its own screen; the field shows the pick with its badge.
-                    val shown = selected?.let { s -> categories.firstOrNull { it.id == s.id } ?: s }
                     // A plain click target over the read-only field, so TalkBack announces it as a button.
                     Box {
                     OutlinedTextField(
-                        value = shown?.displayName ?: "",
+                        value = picked?.displayName ?: "",
                         onValueChange = {},
                         readOnly = true,
                         label = { Text("Category") }, singleLine = true,
                         placeholder = { Text("Choose…") },
-                        leadingIcon = shown?.let { c -> { CategoryIcon(c.systemId ?: c.groupId ?: c.name, c.color, 28.dp) } },
+                        leadingIcon = picked?.let { c -> { CategoryIcon(c.systemId ?: c.groupId ?: c.name, c.color, 28.dp) } },
                         trailingIcon = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null) },
                         modifier = Modifier.fillMaxWidth(),
                     )
@@ -622,8 +623,8 @@ private fun RuleDialog(vm: MainViewModel, initial: UserRuleEntity, onDismiss: ()
                     val transfer = transferAccount.takeIf { asTransfer }
                     vm.saveRule(initial.copy(
                         pattern = pattern, matchType = matchType, appliesTo = appliesTo,
-                        categoryId = if (transfer == null) selected!!.id else "",
-                        categoryName = if (transfer == null) selected!!.displayName else "",
+                        categoryId = if (transfer == null) picked!!.id else "",
+                        categoryName = if (transfer == null) picked!!.displayName else "",
                         transferAccountId = transfer?.first,
                         // Current "Name (CUR)" from Wallet, so rules saved before the currency was added pick it up.
                         transferAccountName = transfer?.let { (id, name) -> accounts.firstOrNull { it.id == id }?.let(::accountLabel) ?: name },
