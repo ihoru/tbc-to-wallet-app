@@ -731,7 +731,7 @@ private fun SettingsScreen(vm: MainViewModel) {
         }
 
         Text(
-            "Version ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+            "Version ${BuildConfig.VERSION_NAME} (${BuildConfig.GIT_SHA})",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,

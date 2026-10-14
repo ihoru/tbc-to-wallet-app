@@ -5,6 +5,15 @@ plugins {
     id("com.google.devtools.ksp")
 }
 
+// Version comes from git so every build is unique and traceable to its commit:
+// versionCode = number of commits, versionName = 0.1.<commits>, GIT_SHA = short hash.
+// Falls back to 1 / "unknown" when git or the history isn't available.
+fun git(vararg args: String): String? = runCatching {
+    providers.exec { commandLine("git", *args) }.standardOutput.asText.get().trim().ifEmpty { null }
+}.getOrNull()
+val gitCommitCount = git("rev-list", "--count", "HEAD")?.toIntOrNull() ?: 1
+val gitSha = git("rev-parse", "--short=7", "HEAD") ?: "unknown"
+
 android {
     namespace = "su.iho.tbc2wallet"
     compileSdk = 35
@@ -13,8 +22,9 @@ android {
         applicationId = "su.iho.tbc2wallet"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1"
+        versionCode = gitCommitCount
+        versionName = "0.1.$gitCommitCount"
+        buildConfigField("String", "GIT_SHA", "\"$gitSha\"")
     }
 
     buildTypes {
@@ -30,7 +40,7 @@ android {
     }
     buildFeatures {
         compose = true
-        buildConfig = true // VERSION_NAME / VERSION_CODE shown in Settings
+        buildConfig = true // VERSION_NAME / GIT_SHA shown in Settings
     }
     testOptions {
         unitTests.isIncludeAndroidResources = true
