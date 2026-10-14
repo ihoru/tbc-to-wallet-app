@@ -295,6 +295,13 @@ class CategoryTreeTest {
         assertNull(tree[2].category) // Income has no category of its own here: heading only
     }
 
+    @Test fun pickerSearchListsEverythingUnderAMatchingGroup() {
+        val tree = CategoryTree.build(wallet)
+        // Income has no category of its own; its categories still show for "income".
+        assertEquals(listOf("Wage" to "Income"), searchRows(tree, "income").map { it.first.name to it.second })
+        assertEquals(listOf("Wolt" to "Food & Drinks / Restaurant"), searchRows(tree, "wol").map { it.first.name to it.second })
+    }
+
     @Test fun searchFindsDeepRowsAndEditedPaths() {
         val tree = CategoryTree.build(wallet)
         val f = CategoryTree.filter(tree, "wol")

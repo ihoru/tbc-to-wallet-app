@@ -54,7 +54,8 @@ import su.iho.tbc2wallet.data.CategoryEntity
  */
 @Composable
 internal fun CategoryPickerDialog(categories: List<CategoryEntity>, onPick: (CategoryEntity) -> Unit, onDismiss: () -> Unit) {
-    Dialog(onDismiss, DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+    // Fits the system bars, so the last rows aren't drawn under the navigation bar.
+    Dialog(onDismiss, DialogProperties(usePlatformDefaultWidth = false)) {
         CategoryPicker(categories, onPick, onDismiss)
     }
 }
@@ -141,20 +142,24 @@ internal fun CategoryPicker(
     }
 }
 
-/** Every pickable row matching [query], with the names above it ("Food & Drinks / Bar, cafe"). */
-private fun searchRows(tree: List<CategoryNode>, query: String): List<Pair<CategoryNode, String?>> {
+/**
+ * Every pickable row matching [query], with the names above it ("Food & Drinks / Bar, cafe").
+ * A row also matches when a row above it does, so "Income" lists everything in that group.
+ */
+internal fun searchRows(tree: List<CategoryNode>, query: String): List<Pair<CategoryNode, String?>> {
     val q = query.trim()
     if (q.isEmpty()) return emptyList()
     val out = mutableListOf<Pair<CategoryNode, String?>>()
-    fun walk(nodes: List<CategoryNode>, above: List<String>) {
+    fun walk(nodes: List<CategoryNode>, above: List<String>, aboveMatched: Boolean) {
         for (n in nodes) {
-            if (n.category != null && n.name.contains(q, ignoreCase = true)) {
+            val matched = aboveMatched || n.name.contains(q, ignoreCase = true)
+            if (n.category != null && matched) {
                 out += n.copy(children = emptyList()) to above.takeIf { it.isNotEmpty() }?.joinToString(" / ")
             }
-            walk(n.children, above + n.name)
+            walk(n.children, above + n.name, matched)
         }
     }
-    walk(tree, emptyList())
+    walk(tree, emptyList(), false)
     return out
 }
 
