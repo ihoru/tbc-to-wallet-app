@@ -28,6 +28,7 @@ enum class TxStatus {
     FAILED,         // Wallet rejected it (bad input); needs a look
     UNPARSED,       // TBC notification in a format the parser doesn't know
     IGNORED,        // dismissed by you
+    DELETED,        // swiped off the list by you; the row stays so a re-posted notification isn't sent again
 }
 
 @Entity(tableName = "transactions")
@@ -127,7 +128,7 @@ abstract class AppDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     abstract suspend fun insertIfNew(tx: TransactionEntity): Long   // -1 when it already existed
 
-    @Query("SELECT * FROM transactions ORDER BY receivedAt DESC LIMIT 300")
+    @Query("SELECT * FROM transactions WHERE status != 'DELETED' ORDER BY receivedAt DESC LIMIT 300")
     abstract fun observeTransactions(): Flow<List<TransactionEntity>>
 
     @Query("SELECT * FROM transactions WHERE status IN ('PENDING','NEEDS_ACCOUNT') ORDER BY receivedAt")
@@ -139,7 +140,15 @@ abstract class AppDao {
     @Query("SELECT walletRecordId FROM transactions WHERE isFake = 1 AND walletRecordId IS NOT NULL")
     abstract suspend fun fakeWalletRecordIds(): List<String>
 
-    @Upsert abstract suspend fun upsertTx(tx: TransactionEntity)
+    @Upsert protected abstract suspend fun upsertRaw(tx: TransactionEntity)
+
+    @Query("SELECT status FROM transactions WHERE dedupKey = :key")
+    abstract suspend fun statusOf(key: String): TxStatus?
+
+    /** Saves [tx], but a row you deleted while it was being sent stays deleted. */
+    @Transaction open suspend fun upsertTx(tx: TransactionEntity) {
+        upsertRaw(if (statusOf(tx.dedupKey) == TxStatus.DELETED) tx.copy(status = TxStatus.DELETED) else tx)
+    }
 
     @Query("UPDATE transactions SET status = :status, error = NULL WHERE dedupKey = :key")
     abstract suspend fun setStatus(key: String, status: TxStatus)
@@ -163,6 +172,7 @@ abstract class AppDao {
     @Query("SELECT * FROM learned") abstract suspend fun learned(): List<LearnedEntity>
     @Query("SELECT * FROM learned ORDER BY payeeKey") abstract fun observeLearned(): Flow<List<LearnedEntity>>
     @Query("SELECT COUNT(*) FROM learned") abstract fun observeLearnedCount(): Flow<Int>
+    @Query("DELETE FROM learned WHERE payeeKey = :payeeKey") abstract suspend fun deleteLearned(payeeKey: String)
     @Query("DELETE FROM learned") abstract suspend fun clearLearned()
     @Insert abstract suspend fun insertLearned(items: List<LearnedEntity>)
     @Transaction open suspend fun replaceLearned(items: List<LearnedEntity>) { clearLearned(); insertLearned(items) }

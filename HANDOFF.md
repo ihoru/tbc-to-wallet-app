@@ -41,7 +41,7 @@ app/src/main/java/su/iho/tbc2wallet/
   data/Database.kt                 Room: transactions, user_rules, wallet_rules, learned, categories, accounts
   data/Settings.kt                 prefs + API token encrypted with an Android Keystore AES-GCM key
   sync/SyncWorker.kt               WorkManager: sends queue, 20 records per POST, 6-hourly safety run
-  sync/Catalog.kt                  refreshes accounts/categories/rules (daily) and learned map (weekly)
+  sync/Catalog.kt                  refreshes accounts/categories/rules (daily) and learned map (daily)
   MainActivity.kt, MainViewModel.kt  Compose UI: Activity / Rules / Settings tabs
 ```
 

@@ -14,6 +14,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.PressInteraction
@@ -47,10 +48,15 @@ import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
+import androidx.compose.foundation.background
+import androidx.compose.material3.rememberSwipeToDismissBoxState
+import androidx.compose.material3.SwipeToDismissBoxValue
+import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -71,9 +77,13 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.darkColorScheme
@@ -85,6 +95,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -207,10 +218,57 @@ private fun ActivityScreen(vm: MainViewModel, onMakeRule: (String) -> Unit) {
         EmptyState("No TBC transactions yet.\nThey'll appear here as notifications arrive.\nTap Fake to try one by hand.")
         return
     }
+    var deleting by remember { mutableStateOf<TransactionEntity?>(null) }
     // Extra bottom space so the Fake button never covers the last card's actions.
     LazyColumn(contentPadding = PaddingValues(start = 12.dp, top = 12.dp, end = 12.dp, bottom = 88.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        items(txs, key = { it.dedupKey }) { tx -> TransactionCard(tx, vm, onMakeRule) }
+        items(txs, key = { it.dedupKey }) { tx ->
+            SwipeToDelete(onSwiped = { deleting = tx }) { TransactionCard(tx, vm, onMakeRule) }
+        }
     }
+    deleting?.let { tx ->
+        DeleteTransactionDialog(tx, onConfirm = { vm.deleteTransaction(tx); deleting = null }, onDismiss = { deleting = null })
+    }
+}
+
+/** Swiping either way asks [onSwiped] to confirm; the card springs back until the row is really gone. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SwipeToDelete(onSwiped: () -> Unit, content: @Composable () -> Unit) {
+    // The swipe state outlives recompositions, so read the latest callback (and the row it captured).
+    val currentOnSwiped by rememberUpdatedState(onSwiped)
+    val state = rememberSwipeToDismissBoxState(confirmValueChange = {
+        if (it != SwipeToDismissBoxValue.Settled) currentOnSwiped()
+        false
+    })
+    SwipeToDismissBox(
+        state = state,
+        backgroundContent = {
+            val start = state.dismissDirection == SwipeToDismissBoxValue.StartToEnd
+            Box(
+                Modifier.fillMaxSize().background(MaterialTheme.colorScheme.errorContainer, CardDefaults.shape).padding(horizontal = 20.dp),
+                contentAlignment = if (start) Alignment.CenterStart else Alignment.CenterEnd,
+            ) {
+                Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.onErrorContainer)
+            }
+        },
+    ) { content() }
+}
+
+@Composable
+private fun DeleteTransactionDialog(tx: TransactionEntity, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    val what = tx.counterParty ?: if (tx.status == TxStatus.UNPARSED) "this unreadable notification" else "this transaction"
+    val consequence = when {
+        tx.walletRecordId != null -> "The record already in Wallet stays there; delete it in Wallet if you want it gone too."
+        tx.status in setOf(TxStatus.PENDING, TxStatus.NEEDS_ACCOUNT, TxStatus.FAILED) -> "It hasn't reached Wallet yet, and the app stops trying to send it."
+        else -> "Nothing changes in Wallet."
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Delete from this list?") },
+        text = { Text("This removes $what from the app's activity list only. $consequence") },
+        confirmButton = { TextButton(onClick = onConfirm) { Text("Delete", color = MaterialTheme.colorScheme.error) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 @Composable
@@ -269,6 +327,7 @@ private fun statusLabel(s: TxStatus) = when (s) {
     TxStatus.FAILED -> "Failed"
     TxStatus.UNPARSED -> "Unreadable"
     TxStatus.IGNORED -> "Ignored"
+    TxStatus.DELETED -> "Deleted"
 }
 
 /** A purchase dated now in Tbilisi time, so the simulated record lands in today's Wallet activity. */
@@ -316,6 +375,7 @@ private fun RulesScreen(vm: MainViewModel, onEdit: (UserRuleEntity) -> Unit) {
     val walletRules by vm.walletRuleCount.collectAsState()
     val learned by vm.learned.collectAsState()
     var learnedOpen by rememberSaveable { mutableStateOf(false) }
+    var forgetting by remember { mutableStateOf<LearnedEntity?>(null) }
     val clashes = remember(rules) { RuleClashes.find(rules.sortedBy { it.id }) { it.toUserRule() } }
     val clashing = remember(clashes) { clashes.flatMap { listOf(it.first.id, it.second.id) }.toSet() }
     // Extra bottom space so the + button never covers the last row.
@@ -332,7 +392,7 @@ private fun RulesScreen(vm: MainViewModel, onEdit: (UserRuleEntity) -> Unit) {
                     Text("3. Learned from your history (${learned.size} payees)")
                     Text("4. Otherwise none — Wallet marks it Unknown")
                     Text(
-                        "History is re-read weekly. If you fix a category in Wallet, that correction counts triple next time.",
+                        "History is re-read daily. If you fix a category in Wallet, that correction counts triple next time.",
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
@@ -362,20 +422,55 @@ private fun RulesScreen(vm: MainViewModel, onEdit: (UserRuleEntity) -> Unit) {
             if (learnedOpen) {
                 item(key = "learned-hint") {
                     Text(
-                        "Rebuilt from Wallet every week. Tap one to turn it into your own rule.",
+                        "Rebuilt from Wallet every day. Tap one to turn it into your own rule, or swipe it away to forget it.",
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
                 items(learned, key = { "learned-" + it.payeeKey }) { entry ->
-                    LearnedRow(entry, onClick = {
-                        onEdit(newRule(entry.payeeKey).copy(
-                            matchType = "EXACT", categoryId = entry.categoryId, categoryName = entry.categoryName,
-                        ))
-                    })
+                    SwipeToDelete(onSwiped = { forgetting = entry }) {
+                        LearnedRow(entry, onClick = {
+                            onEdit(newRule(entry.payeeKey).copy(
+                                matchType = "EXACT", categoryId = entry.categoryId, categoryName = entry.categoryName,
+                            ))
+                        })
+                    }
                 }
             }
         }
     }
+    forgetting?.let { entry ->
+        AlertDialog(
+            onDismissRequest = { forgetting = null },
+            title = { Text("Forget “${entry.payeeKey}”?") },
+            text = { Text("It stops getting ${entry.categoryName} from your history, and later re-learns skip it. Your own rules aren't affected.") },
+            confirmButton = {
+                TextButton(onClick = { vm.forgetLearned(entry); forgetting = null }) { Text("Forget", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { forgetting = null }) { Text("Cancel") } },
+        )
+    }
+}
+
+/** Swiping either way asks [onSwiped] to confirm; the card springs back until the row is really gone. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SwipeToDelete(onSwiped: () -> Unit, content: @Composable () -> Unit) {
+    val state = rememberSwipeToDismissBoxState(confirmValueChange = {
+        if (it != SwipeToDismissBoxValue.Settled) onSwiped()
+        false
+    })
+    SwipeToDismissBox(
+        state = state,
+        backgroundContent = {
+            val start = state.dismissDirection == SwipeToDismissBoxValue.StartToEnd
+            Box(
+                Modifier.fillMaxSize().background(MaterialTheme.colorScheme.errorContainer, CardDefaults.shape).padding(horizontal = 20.dp),
+                contentAlignment = if (start) Alignment.CenterStart else Alignment.CenterEnd,
+            ) {
+                Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.onErrorContainer)
+            }
+        },
+    ) { content() }
 }
 
 @Composable
@@ -507,25 +602,10 @@ private fun RuleDialog(vm: MainViewModel, initial: UserRuleEntity, onDismiss: ()
                     FilterChip(!asTransfer, { asTransfer = false }, label = { Text("Category") })
                     FilterChip(asTransfer, { asTransfer = true }, label = { Text("Transfer") })
                 }
-                Text("Labels", style = MaterialTheme.typography.labelLarge)
                 // Labels on the rule that Wallet no longer lists still show, so they can be removed.
                 val shown = labels.map { it.id to it.name } + chosenLabels.filterKeys { id -> labels.none { it.id == id } }.toList()
-                if (shown.isEmpty()) {
-                    Text("No labels loaded from Wallet.", style = MaterialTheme.typography.bodySmall)
-                } else {
-                    // Capped and scrollable so a long label list can't push the category picker out of the dialog.
-                    FlowRow(
-                        Modifier.heightIn(max = 120.dp).verticalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        shown.forEach { (id, name) ->
-                            FilterChip(
-                                selected = id in chosenLabels,
-                                onClick = { chosenLabels = if (id in chosenLabels) chosenLabels - id else chosenLabels + (id to name) },
-                                label = { Text(name) },
-                            )
-                        }
-                    }
+                LabelPicker(shown, chosenLabels) { id, name ->
+                    chosenLabels = if (id in chosenLabels) chosenLabels - id else chosenLabels + (id to name)
                 }
                 if (asTransfer) {
                     // Wallet creates the other side of the transfer there, which it won't do in a bank-synced account.
@@ -680,6 +760,14 @@ private fun SettingsScreen(vm: MainViewModel) {
             key(version) { Text("Last sync: ${vm.settings.lastSyncMessage ?: "never"}", style = MaterialTheme.typography.bodySmall) }
             OutlinedButton(onClick = { vm.syncNow() }) { Text("Sync now") }
         }
+
+        Text(
+            "Version ${BuildConfig.VERSION_NAME} (${BuildConfig.GIT_SHA})",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
 }
 
@@ -708,6 +796,36 @@ private fun AccountPicker(currency: String, options: List<AccountEntity>, select
                 )
             }
             if (selected != null) DropdownMenuItem(text = { Text("Clear") }, onClick = { onSelect(null); expanded = false })
+        }
+    }
+}
+
+/** Multi-select drop-down of Wallet labels. [options] and [chosen] are id -> name; the menu stays open while ticking. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun LabelPicker(options: List<Pair<String, String>>, chosen: Map<String, String>, onToggle: (String, String) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    ExposedDropdownMenuBox(expanded, { expanded = it }) {
+        OutlinedTextField(
+            value = if (chosen.isEmpty()) "None" else options.filter { it.first in chosen }.joinToString(", ") { it.second },
+            // One line, so many or long labels can't stretch the dialog past its buttons.
+            onValueChange = {}, readOnly = true, singleLine = true,
+            label = { Text("Labels") },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
+            modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable),
+        )
+        ExposedDropdownMenu(expanded, { expanded = false }) {
+            if (options.isEmpty()) DropdownMenuItem(
+                text = { Text("No labels loaded. Add your token in Settings and tap Refresh.") },
+                onClick = { expanded = false },
+            )
+            options.forEach { (id, name) ->
+                DropdownMenuItem(
+                    text = { Text(name) },
+                    leadingIcon = { Checkbox(checked = id in chosen, onCheckedChange = null) },
+                    onClick = { onToggle(id, name) },
+                )
+            }
         }
     }
 }

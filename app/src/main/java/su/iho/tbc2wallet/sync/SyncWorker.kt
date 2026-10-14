@@ -126,7 +126,10 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
 
         val labelRejected = mutableListOf<Pair<TransactionEntity, WalletApi.NewRecord>>()
         suspend fun send(batch: List<Pair<TransactionEntity, WalletApi.NewRecord>>, retryWithoutLabel: Boolean) {
-            for (chunk in batch.chunked(20)) {
+            for (all in batch.chunked(20)) {
+                // Skip anything you deleted since the queue was read.
+                val chunk = all.filter { dao.statusOf(it.first.dedupKey) != TxStatus.DELETED }
+                if (chunk.isEmpty()) continue
                 val results = api.createRecords(chunk.map { it.second }).associateBy { it.inputIndex }
                 chunk.forEachIndexed { i, (tx, record) ->
                     val r = results[i]

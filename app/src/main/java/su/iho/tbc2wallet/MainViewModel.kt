@@ -6,6 +6,7 @@ import android.provider.Settings.Secure
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import su.iho.tbc2wallet.api.WalletApi
+import su.iho.tbc2wallet.data.LearnedEntity
 import su.iho.tbc2wallet.data.AppDatabase
 import su.iho.tbc2wallet.data.Settings
 import su.iho.tbc2wallet.data.TransactionEntity
@@ -104,6 +105,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun ignore(tx: TransactionEntity) = viewModelScope.launch { dao.setStatus(tx.dedupKey, TxStatus.IGNORED) }
 
+    /** Hides [tx] from the app's own list and stops it being sent; a record already in Wallet stays there. */
+    fun deleteTransaction(tx: TransactionEntity) = viewModelScope.launch { dao.setStatus(tx.dedupKey, TxStatus.DELETED) }
+
     /** Inserts [rule] when its id is 0, otherwise replaces the existing rule with that id. */
     fun saveRule(rule: UserRuleEntity) = viewModelScope.launch {
         val clean = rule.copy(pattern = rule.pattern.trim())
@@ -111,4 +115,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun deleteRule(rule: UserRuleEntity) = viewModelScope.launch { dao.deleteUserRule(rule.id) }
+
+    /** Drops a learned payee and keeps it out of later re-learns. */
+    fun forgetLearned(entry: LearnedEntity) = viewModelScope.launch {
+        settings.forgottenPayees = settings.forgottenPayees + entry.payeeKey
+        dao.deleteLearned(entry.payeeKey)
+    }
 }
