@@ -86,6 +86,11 @@ outgoing transfers yet. Anything it can't read is stored as UNPARSED and shown f
   `amount.value` (**negative = expense, positive = income**, never zero), `recordDate` (ISO-8601,
   no more than 24 hours in the future). Optional: `categoryId`, `counterParty` (≤255), `note` (≤255),
   `labelIds`, `recordState`, `place`, `transfer`.
+  - `transfer: {"pairingMode": "new", "accountId": "<other>"}` makes the record a transfer and has
+    Wallet create the mirror record on the other account (FX-converted when currencies differ;
+    `counterAmount` overrides). `pairingMode` can also be `existing` (+ `recordId`) or `unpaired`.
+    Records read back carry `transfer {transferId, mirrorRecord}`, null for regular records.
+    Transfer rules in the app use `new`.
   - `amount.currencyCode` is optional but **must match the account's currency**. This is why each
     currency has to map to its own account.
   - Omitting `categoryId` makes Wallet default the record to Unknown (agent hint
@@ -101,6 +106,8 @@ outgoing transfers yet. Anything it can't read is stored as UNPARSED and shown f
 - `GET /v1/api/record-rules` returns `recordRules[]` with `keywords[]`, `category {id,name}` and
   `fromAccountId`.
 - `GET /v1/api/categories` returns `categories[]` with `id`, `name`, `parentName`, `archived`, `enabled`.
+- `GET /v1/api/labels` is assumed to return `labels[]` with `id`, `name`, `archived` (not checked against
+  the OpenAPI spec). The app caches them for the rule dialog; if the call fails, rules simply have no labels to pick.
 - `GET /v1/api/accounts` returns `accounts[]` with `id`, `name`, `currencyCode`, `isBankSync`, `archived`.
 - `PATCH /v1/api/records` takes up to 10 items, and `$clear` resets fields.
 - OpenAPI JSON: `https://rest.budgetbakers.com/wallet/openapi`. Reference: `/wallet/reference`.
@@ -127,6 +134,12 @@ outgoing transfers yet. Anything it can't read is stored as UNPARSED and shown f
   its own prefs file, `account_mapping.xml`. The token, activity log and Wallet caches are excluded
   (`res/xml/data_extraction_rules.xml`, `res/xml/backup_rules.xml`); after a restore, paste the token again.
 
+## Screenshots
+UI changes get screenshots in the PR. `app/src/test/.../screenshots/` renders real screens with
+Robolectric + Roborazzi from seeded sample data; it is skipped in normal test runs. Record with
+`./gradlew :app:testDebugUnitTest -Pscreenshots --tests '*screenshots*'`; PNGs land in
+`app/build/outputs/roborazzi/`. Copies used in PR descriptions live in `docs/screenshots/`.
+
 ## Known gaps and ideas
 - **Possible duplicate on retry.** If the network drops after Wallet commits but before the
   response arrives, the retry creates a duplicate. Fix: before re-sending, query
@@ -135,6 +148,11 @@ outgoing transfers yet. Anything it can't read is stored as UNPARSED and shown f
   "Change category" through PATCH, and feed that into the learned map.
 - **Unsupported formats.** Georgian-language notifications, refunds, reversals and ATM withdrawals.
   Collect samples from the UNPARSED items.
+- **Fake notifications.** The Activity tab's Fake button runs typed-in text through the same
+  ingest path. On each sync that has fake records, the app looks up the active label named "fake"
+  (`GET /v1/api/labels`), creates it if missing (`POST /v1/api/labels` with `{"name":"fake"}`,
+  response `{"label":{"id":…}}`), and puts it in `labelIds`; "[fake]" also goes in the note. If the
+  label API answers with a 4xx, only the note marks it. Fake items are never deduplicated.
 - **Launcher icon.** Only an adaptive icon exists (minSdk 26, so that's enough).
 - **Owner preference.** Before doing anything on the owner's behalf that can't be fully done,
   say so upfront and let them decide.

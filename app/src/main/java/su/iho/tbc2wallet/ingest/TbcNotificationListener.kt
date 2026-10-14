@@ -74,7 +74,14 @@ object Ingest {
     /** TBC shows Georgian local time regardless of where the phone is. */
     val BANK_ZONE: ZoneId = ZoneId.of("Asia/Tbilisi")
 
-    suspend fun handle(context: Context, text: String, notificationKey: String, whenMillis: Long, postTime: Long) {
+    /**
+     * [fake] marks text typed in from the Activity tab. It goes through the same parser, rules
+     * and upload, but every submission is kept (never deduplicated) and tagged "fake" in Wallet.
+     */
+    suspend fun handle(
+        context: Context, text: String, notificationKey: String, whenMillis: Long, postTime: Long,
+        fake: Boolean = false,
+    ) {
         val dao = AppDatabase.get(context).dao()
         val parsed = TbcNotificationParser.parse(text)
 
@@ -84,12 +91,13 @@ object Ingest {
                 kind = null, amount = null, currency = null, counterParty = null,
                 accountLabel = null, cardLast4 = null, recordDateUtc = null,
                 rawText = text, status = TxStatus.UNPARSED, receivedAt = System.currentTimeMillis(),
+                isFake = fake,
             )
         } else {
             val settings = Settings(context)
             settings.seenCurrencies = settings.seenCurrencies + parsed.currency
             TransactionEntity(
-                dedupKey = dedupKey(parsed, notificationKey, whenMillis),
+                dedupKey = if (fake) sha("FAKE|$text|$notificationKey|$whenMillis") else dedupKey(parsed, notificationKey, whenMillis),
                 kind = parsed.kind.name,
                 amount = parsed.amount.toPlainString(),
                 currency = parsed.currency,
@@ -100,13 +108,14 @@ object Ingest {
                 rawText = text,
                 status = TxStatus.PENDING,
                 receivedAt = System.currentTimeMillis(),
+                isFake = fake,
             )
         }
 
         val inserted = dao.insertIfNew(entity) != -1L
         Log.d("TbcIngest", "status=${entity.status} new=$inserted")
         if (inserted && entity.status == TxStatus.PENDING) SyncWorker.enqueue(context)
-        if (inserted && entity.status == TxStatus.UNPARSED) Notifier.unparsed(context)
+        if (inserted && entity.status == TxStatus.UNPARSED && !fake) Notifier.unparsed(context)
     }
 
     /**

@@ -6,6 +6,11 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
@@ -47,11 +52,17 @@ class WalletApi(private val token: String) {
     @Serializable data class Record(
         val id: String, val counterParty: String? = null, val note: String? = null,
         val category: CategoryEmbed? = null, val source: String? = null,
+        /** Null for regular records. */
+        val transfer: TransferEmbed? = null,
     )
+    @Serializable data class TransferEmbed(val transferId: String? = null)
+
+    @Serializable data class Label(val id: String, val name: String = "", val archived: Boolean = false)
 
     @Serializable private data class AccountsPage(val accounts: List<Account> = emptyList(), val nextOffset: Int? = null)
     @Serializable private data class CategoriesPage(val categories: List<Category> = emptyList(), val nextOffset: Int? = null)
     @Serializable private data class RulesPage(val recordRules: List<RecordRule> = emptyList(), val nextOffset: Int? = null)
+    @Serializable private data class LabelsPage(val labels: List<Label> = emptyList(), val nextOffset: Int? = null)
     @Serializable private data class RecordsPage(val records: List<Record> = emptyList(), val nextOffset: Int? = null)
 
     @Serializable data class Amount(val value: Double, val currencyCode: String? = null)
@@ -62,7 +73,14 @@ class WalletApi(private val token: String) {
         val categoryId: String? = null,
         val counterParty: String? = null,
         val note: String? = null,
+        val labelIds: List<String>? = null,
+        val transfer: Transfer? = null,
     )
+    /**
+     * Makes the record one side of a transfer with [accountId]. pairingMode "new" has Wallet create
+     * the mirror record there, converting the amount by FX when the currencies differ.
+     */
+    @Serializable data class Transfer(val accountId: String, val pairingMode: String)
     @Serializable data class WriteResult(
         val inputIndex: Int, val id: String? = null, val success: Boolean = false,
         val error: String? = null, val errorType: String? = null,
@@ -81,6 +99,27 @@ class WalletApi(private val token: String) {
 
     suspend fun recordRules(): List<RecordRule> = paged { offset ->
         get<RulesPage>("record-rules", "limit" to "200", "offset" to "$offset").let { it.recordRules to it.nextOffset }
+    }
+
+    suspend fun labels(): List<Label> = paged { offset ->
+        get<LabelsPage>("labels", "limit" to "200", "offset" to "$offset").let { it.labels to it.nextOffset }
+    }
+
+    /**
+     * Creates a label (`POST /v1/api/labels` with one object) and returns its id.
+     */
+    suspend fun createLabel(name: String): String? {
+        val body = json.encodeToString(mapOf("name" to name)).toRequestBody(JSON)
+        val request = Request.Builder().url(url("labels")).post(body).auth().build()
+        return execute(request, acceptedCodes = setOf(200, 201, 207)) { text ->
+            val root = json.parseToJsonElement(text)
+            fun JsonElement.id(): String? = (this as? JsonObject)?.get("id")?.jsonPrimitive?.contentOrNull
+            // The spec documents {"label": {"id": ...}}; also accept the batch envelope other writes use.
+            val obj = root as? JsonObject
+            obj?.get("label")?.id()
+                ?: obj?.get("results")?.jsonArray?.firstOrNull()?.id()
+                ?: root.id()
+        }
     }
 
     /** Records on or after [fromDate] (YYYY-MM-DD). [categoryId] may be "unknown". */
