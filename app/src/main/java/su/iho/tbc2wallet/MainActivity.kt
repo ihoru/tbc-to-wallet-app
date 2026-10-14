@@ -85,6 +85,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -223,8 +224,10 @@ private fun ActivityScreen(vm: MainViewModel, onMakeRule: (String) -> Unit) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SwipeToDelete(onSwiped: () -> Unit, content: @Composable () -> Unit) {
+    // The swipe state outlives recompositions, so read the latest callback (and the row it captured).
+    val currentOnSwiped by rememberUpdatedState(onSwiped)
     val state = rememberSwipeToDismissBoxState(confirmValueChange = {
-        if (it != SwipeToDismissBoxValue.Settled) onSwiped()
+        if (it != SwipeToDismissBoxValue.Settled) currentOnSwiped()
         false
     })
     SwipeToDismissBox(
@@ -314,6 +317,7 @@ private fun statusLabel(s: TxStatus) = when (s) {
     TxStatus.FAILED -> "Failed"
     TxStatus.UNPARSED -> "Unreadable"
     TxStatus.IGNORED -> "Ignored"
+    TxStatus.DELETED -> "Deleted"
 }
 
 /** A purchase dated now in Tbilisi time, so the simulated record lands in today's Wallet activity. */

@@ -18,6 +18,7 @@ import com.github.takahirom.roborazzi.ExperimentalRoborazziApi
 import com.github.takahirom.roborazzi.captureScreenRoboImage
 import kotlinx.coroutines.runBlocking
 import kotlin.concurrent.thread
+import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -88,6 +89,15 @@ class SwipeDeleteScreenshots {
         compose.onNode(hasText("Delete") and hasClickAction()).performClick()
         compose.waitUntil(5_000) { compose.onAllNodes(hasText("Shopsy")).fetchSemanticsNodes().isEmpty() }
         captureScreenRoboImage("$out/4-after-delete.png")
+        // The row stays as a tombstone, and a send that was already under way can't bring it back.
+        runBlocking {
+            val dao = db.dao()
+            assertEquals(TxStatus.DELETED, dao.statusOf("t1"))
+            val pending = dao.toSend().single()
+            dao.setStatus("t2", TxStatus.DELETED)
+            dao.upsertTx(pending.copy(status = TxStatus.SENT, walletRecordId = "r2"))
+            assertEquals(TxStatus.DELETED, dao.statusOf("t2"))
+        }
     }
 
     private fun swipeAndConfirm(row: String, file: String) {
