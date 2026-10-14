@@ -15,7 +15,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -93,6 +95,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.lifecycle.compose.LifecycleResumeEffect
+import su.iho.tbc2wallet.categorize.CategoryNode
 import su.iho.tbc2wallet.categorize.CategoryTree
 import su.iho.tbc2wallet.data.AccountEntity
 import su.iho.tbc2wallet.categorize.CategoryResolver
@@ -576,63 +579,74 @@ private fun RuleDialog(vm: MainViewModel, initial: UserRuleEntity, onDismiss: ()
 }
 
 /**
- * Categories as a tree: parents collapsed by default, tap the arrow to show subcategories.
- * While searching, every parent with a match is shown expanded.
+ * Categories laid out like Wallet's picker: groups, their categories and your subcategories,
+ * each with Wallet's color. Rows with children start collapsed; tap the arrow to open one.
+ * While searching, every row on the way to a match is open.
  */
 @Composable
-private fun CategoryTreeList(categories: List<CategoryEntity>, query: String, onSelect: (CategoryEntity) -> Unit) {
+internal fun CategoryTreeList(categories: List<CategoryEntity>, query: String, onSelect: (CategoryEntity) -> Unit) {
     val tree = remember(categories) { CategoryTree.build(categories) }
     val shown = remember(tree, query) { CategoryTree.filter(tree, query) }
     val searching = query.isNotBlank()
     var expanded by remember { mutableStateOf(emptySet<String>()) }
-
-    LazyColumn(Modifier.heightIn(max = 260.dp)) {
-        shown.forEach { node ->
-            val open = searching || node.name in expanded
-            item(key = "p:${node.name}") {
-                Row(
-                    Modifier.fillMaxWidth().clickable {
-                        val c = node.category
-                        if (c != null) onSelect(c)
-                        else expanded = if (node.name in expanded) expanded - node.name else expanded + node.name
-                    },
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    if (node.children.isEmpty()) Spacer(Modifier.width(48.dp))
-                    else IconButton(
-                        onClick = { expanded = if (node.name in expanded) expanded - node.name else expanded + node.name },
-                        enabled = !searching,
-                    ) {
-                        Icon(
-                            if (open) Icons.Default.KeyboardArrowDown else Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                            if (open) "Collapse ${node.name}" else "Expand ${node.name}",
-                        )
-                    }
-                    Text(
-                        node.name,
-                        Modifier.weight(1f).padding(vertical = 8.dp),
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = if (node.category == null) MaterialTheme.colorScheme.onSurfaceVariant
-                        else MaterialTheme.colorScheme.onSurface,
-                    )
-                    if (node.children.isNotEmpty()) Text(
-                        "${node.children.size}",
-                        Modifier.padding(end = 8.dp),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+    val rows = remember(shown, expanded, searching) {
+        buildList<Triple<CategoryNode, Int, Boolean>> {
+            fun walk(nodes: List<CategoryNode>, depth: Int) {
+                for (n in nodes) {
+                    val open = searching || n.key in expanded
+                    add(Triple(n, depth, open))
+                    if (open) walk(n.children, depth + 1)
                 }
-                HorizontalDivider()
             }
-            if (open) items(node.children, key = { it.id }) { c ->
+            walk(shown, 0)
+        }
+    }
+
+    LazyColumn(Modifier.heightIn(max = 320.dp)) {
+        items(rows, key = { it.first.key }) { (node, depth, open) ->
+            val toggle = { expanded = if (node.key in expanded) expanded - node.key else expanded + node.key }
+            Row(
+                Modifier.fillMaxWidth()
+                    .heightIn(min = if (depth == 0) 56.dp else 48.dp)
+                    .clickable { node.category?.let(onSelect) ?: toggle() }
+                    .padding(start = (depth * 28).dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                CategoryDot(node.name, node.color, size = if (depth == 0) 36.dp else 28.dp)
+                Spacer(Modifier.width(12.dp))
                 Text(
-                    c.name,
-                    Modifier.fillMaxWidth().clickable { onSelect(c) }.padding(start = 48.dp, top = 8.dp, bottom = 8.dp),
-                    style = MaterialTheme.typography.bodyMedium,
+                    node.name,
+                    Modifier.weight(1f),
+                    style = if (depth == 0) MaterialTheme.typography.bodyLarge else MaterialTheme.typography.bodyMedium,
+                    color = if (node.category == null) MaterialTheme.colorScheme.onSurfaceVariant
+                    else MaterialTheme.colorScheme.onSurface,
                 )
-                HorizontalDivider(Modifier.padding(start = 48.dp))
+                if (node.children.isNotEmpty()) IconButton(onClick = toggle, enabled = !searching) {
+                    Icon(
+                        if (open) Icons.Default.KeyboardArrowDown else Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        if (open) "Collapse ${node.name}" else "Expand ${node.name}",
+                    )
+                } else Spacer(Modifier.width(48.dp))
             }
         }
+    }
+}
+
+/** Wallet's round category badge: its color with the name's first letter. */
+@Composable
+private fun CategoryDot(name: String, hex: String?, size: androidx.compose.ui.unit.Dp) {
+    val bg = remember(hex) {
+        runCatching { androidx.compose.ui.graphics.Color(android.graphics.Color.parseColor(hex)) }.getOrNull()
+    } ?: MaterialTheme.colorScheme.outline
+    Box(
+        Modifier.size(size).background(bg, androidx.compose.foundation.shape.CircleShape),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            name.firstOrNull { it.isLetterOrDigit() }?.uppercase() ?: "?",
+            color = androidx.compose.ui.graphics.Color.White,
+            style = if (size >= 36.dp) MaterialTheme.typography.titleMedium else MaterialTheme.typography.labelLarge,
+        )
     }
 }
 
