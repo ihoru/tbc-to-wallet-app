@@ -249,7 +249,7 @@ private fun DeleteTransactionDialog(tx: TransactionEntity, onConfirm: () -> Unit
     val what = tx.counterParty ?: if (tx.status == TxStatus.UNPARSED) "this unreadable notification" else "this transaction"
     val consequence = when {
         tx.walletRecordId != null -> "The record already in Wallet stays there; delete it in Wallet if you want it gone too."
-        tx.status in setOf(TxStatus.PENDING, TxStatus.NEEDS_ACCOUNT, TxStatus.FAILED) -> "It hasn't reached Wallet, and now it won't be sent."
+        tx.status in setOf(TxStatus.PENDING, TxStatus.NEEDS_ACCOUNT, TxStatus.FAILED) -> "It hasn't reached Wallet yet, and the app stops trying to send it."
         else -> "Nothing changes in Wallet."
     }
     AlertDialog(
