@@ -33,8 +33,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
@@ -83,6 +85,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.lifecycle.compose.LifecycleResumeEffect
+import su.iho.tbc2wallet.categorize.CategoryTree
 import su.iho.tbc2wallet.data.AccountEntity
 import su.iho.tbc2wallet.data.CategoryEntity
 import su.iho.tbc2wallet.data.displayName
@@ -304,18 +307,7 @@ private fun RuleDialog(vm: MainViewModel, initialPattern: String, onDismiss: () 
                         onValueChange = { query = it; selected = null },
                         label = { Text("Category") }, singleLine = true,
                     )
-                    if (selected == null) {
-                        val matches = categories.filter { it.displayName.contains(query, ignoreCase = true) }.take(50)
-                        LazyColumn(Modifier.heightIn(max = 220.dp)) {
-                            items(matches, key = { it.id }) { c ->
-                                Text(
-                                    c.displayName,
-                                    Modifier.fillMaxWidth().clickable { selected = c }.padding(vertical = 8.dp),
-                                )
-                                HorizontalDivider()
-                            }
-                        }
-                    }
+                    if (selected == null) CategoryTreeList(categories, query, onSelect = { selected = it })
                 }
             }
         },
@@ -327,6 +319,67 @@ private fun RuleDialog(vm: MainViewModel, initialPattern: String, onDismiss: () 
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
+}
+
+/**
+ * Categories as a tree: parents collapsed by default, tap the arrow to show subcategories.
+ * While searching, every parent with a match is shown expanded.
+ */
+@Composable
+private fun CategoryTreeList(categories: List<CategoryEntity>, query: String, onSelect: (CategoryEntity) -> Unit) {
+    val tree = remember(categories) { CategoryTree.build(categories) }
+    val shown = remember(tree, query) { CategoryTree.filter(tree, query) }
+    val searching = query.isNotBlank()
+    var expanded by remember { mutableStateOf(emptySet<String>()) }
+
+    LazyColumn(Modifier.heightIn(max = 260.dp)) {
+        shown.forEach { node ->
+            val open = searching || node.name in expanded
+            item(key = "p:${node.name}") {
+                Row(
+                    Modifier.fillMaxWidth().clickable {
+                        val c = node.category
+                        if (c != null) onSelect(c)
+                        else expanded = if (node.name in expanded) expanded - node.name else expanded + node.name
+                    },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (node.children.isEmpty()) Spacer(Modifier.width(48.dp))
+                    else IconButton(
+                        onClick = { expanded = if (node.name in expanded) expanded - node.name else expanded + node.name },
+                        enabled = !searching,
+                    ) {
+                        Icon(
+                            if (open) Icons.Default.KeyboardArrowDown else Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            if (open) "Collapse ${node.name}" else "Expand ${node.name}",
+                        )
+                    }
+                    Text(
+                        node.name,
+                        Modifier.weight(1f).padding(vertical = 8.dp),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = if (node.category == null) MaterialTheme.colorScheme.onSurfaceVariant
+                        else MaterialTheme.colorScheme.onSurface,
+                    )
+                    if (node.children.isNotEmpty()) Text(
+                        "${node.children.size}",
+                        Modifier.padding(end = 8.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                HorizontalDivider()
+            }
+            if (open) items(node.children, key = { it.id }) { c ->
+                Text(
+                    c.name,
+                    Modifier.fillMaxWidth().clickable { onSelect(c) }.padding(start = 48.dp, top = 8.dp, bottom = 8.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                HorizontalDivider(Modifier.padding(start = 48.dp))
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------- Settings
