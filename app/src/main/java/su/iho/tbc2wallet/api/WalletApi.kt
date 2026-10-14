@@ -52,7 +52,10 @@ class WalletApi(private val token: String) {
     @Serializable data class Record(
         val id: String, val counterParty: String? = null, val note: String? = null,
         val category: CategoryEmbed? = null, val source: String? = null,
+        /** Null for regular records. */
+        val transfer: TransferEmbed? = null,
     )
+    @Serializable data class TransferEmbed(val transferId: String? = null)
 
     @Serializable data class Label(val id: String, val name: String = "", val archived: Boolean = false)
 
@@ -71,7 +74,13 @@ class WalletApi(private val token: String) {
         val counterParty: String? = null,
         val note: String? = null,
         val labelIds: List<String>? = null,
+        val transfer: Transfer? = null,
     )
+    /**
+     * Makes the record one side of a transfer with [accountId]. pairingMode "new" has Wallet create
+     * the mirror record there, converting the amount by FX when the currencies differ.
+     */
+    @Serializable data class Transfer(val accountId: String, val pairingMode: String)
     @Serializable data class WriteResult(
         val inputIndex: Int, val id: String? = null, val success: Boolean = false,
         val error: String? = null, val errorType: String? = null,

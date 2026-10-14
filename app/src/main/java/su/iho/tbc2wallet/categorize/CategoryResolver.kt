@@ -9,6 +9,11 @@ data class CategoryDecision(
     val categoryId: String?,
     val categoryName: String?,
     val source: CategorySource,
+    /** Wallet labels to put on the record; only your own rules set them. */
+    val labelIds: List<String> = emptyList(),
+    /** When set, send a transfer to (expense) or from (income) this Wallet account instead of a category. */
+    val transferAccountId: String? = null,
+    val transferAccountName: String? = null,
 )
 
 enum class MatchType { CONTAINS, EXACT }
@@ -21,6 +26,10 @@ data class UserRule(
     val appliesTo: AppliesTo,
     val categoryId: String,
     val categoryName: String,
+    val labelIds: List<String> = emptyList(),
+    /** When set, matches become transfers with this Wallet account; the category is ignored. */
+    val transferAccountId: String? = null,
+    val transferAccountName: String? = null,
 )
 
 /** A categorization rule defined in Wallet itself (GET /v1/api/record-rules). */
@@ -52,21 +61,20 @@ class CategoryResolver(
     userRules: List<UserRule>,
     private val walletRules: List<WalletRule>,
     private val learned: Map<String, LearnedEntry>,
-    private val minVotes: Int = 2,
-    private val minShare: Double = 0.6,
+    private val minVotes: Int = MIN_VOTES,
+    private val minShare: Double = MIN_SHARE,
 ) {
-    // Longer / exact patterns are more specific, so they are checked first.
-    private val userRules = userRules.sortedWith(
-        compareByDescending<UserRule> { it.matchType == MatchType.EXACT }
-            .thenByDescending { it.pattern.length }
-    )
+    private val userRules = userRules.sortedWith(RULE_PRIORITY)
 
     fun resolve(kind: TxKind, counterParty: String?, accountId: String?): CategoryDecision {
         val payee = counterParty?.trim().orEmpty()
         if (payee.isEmpty()) return NONE
 
         userRules.firstOrNull { it.appliesTo(kind) && it.matches(payee) }?.let {
-            return CategoryDecision(it.categoryId, it.categoryName, CategorySource.USER_RULE)
+            if (it.transferAccountId != null) {
+                return CategoryDecision(null, null, CategorySource.USER_RULE, it.labelIds, it.transferAccountId, it.transferAccountName)
+            }
+            return CategoryDecision(it.categoryId, it.categoryName, CategorySource.USER_RULE, it.labelIds)
         }
 
         walletRules.firstOrNull { rule ->
@@ -98,6 +106,17 @@ class CategoryResolver(
 
     companion object {
         private val NONE = CategoryDecision(null, null, CategorySource.NONE)
+
+        /**
+         * Order in which your rules are tried: exact before contains, then longer patterns first,
+         * since they're more specific. Ties keep the list order (oldest rule first).
+         */
+        val RULE_PRIORITY: Comparator<UserRule> =
+            compareByDescending<UserRule> { it.matchType == MatchType.EXACT }.thenByDescending { it.pattern.length }
+
+        /** A learned payee is only used once it has this many votes and this share of them. */
+        const val MIN_VOTES = 2
+        const val MIN_SHARE = 0.6
 
         /**
          * Normalizes a payee so small variations map to one key:

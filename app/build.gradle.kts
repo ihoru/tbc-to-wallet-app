@@ -35,6 +35,13 @@ android {
     }
 }
 
+// The screenshots/ tests render many screens with Robolectric and are slow, so they only run on request:
+//   ./gradlew :app:testDebugUnitTest -Pscreenshots --tests '*screenshots*'
+// Images land in app/build/outputs/roborazzi/.
+tasks.withType<Test>().configureEach {
+    if (!project.hasProperty("screenshots")) exclude("**/screenshots/**")
+}
+
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2024.12.01")
     implementation(composeBom)

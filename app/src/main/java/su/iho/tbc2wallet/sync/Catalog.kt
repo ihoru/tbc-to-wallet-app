@@ -6,9 +6,11 @@ import su.iho.tbc2wallet.categorize.PayeeLearner
 import su.iho.tbc2wallet.data.AccountEntity
 import su.iho.tbc2wallet.data.AppDatabase
 import su.iho.tbc2wallet.data.CategoryEntity
+import su.iho.tbc2wallet.data.LabelEntity
 import su.iho.tbc2wallet.data.LearnedEntity
 import su.iho.tbc2wallet.data.Settings
 import su.iho.tbc2wallet.data.WalletRuleEntity
+import android.util.Log
 import java.time.LocalDate
 
 /**
@@ -38,6 +40,11 @@ class Catalog(private val context: Context) {
                 fromAccountId = rule.fromAccountId,
             )
         })
+        // The labels endpoint isn't in the documented API facts, so a failure here only leaves
+        // the rule dialog without labels to pick; it never blocks the rest of the catalog.
+        val labels = runCatching { api.labels() }.onFailure { Log.w("Catalog", "labels not loaded", it) }.getOrNull()
+        // On failure, drop the cache too: it may belong to a token that's no longer the one in use.
+        dao.replaceLabels(labels.orEmpty().filterNot { it.archived }.map { LabelEntity(it.id, it.name) })
         settings.lastCatalogRefresh = System.currentTimeMillis()
     }
 
@@ -54,9 +61,10 @@ class Catalog(private val context: Context) {
 
         // Simulated records must never teach the payee map. The note marker also catches fakes
         // whose Wallet id never reached this device (lost response, reinstall).
+        // A transfer's category is Wallet's, not a choice made for the payee, so it isn't learned either.
         val fakeIds = dao.fakeWalletRecordIds().toSet()
         val history = api.records(from)
-            .filter { it.id !in fakeIds && it.note?.startsWith(SyncWorker.FAKE_NOTE_MARKER) != true }
+            .filter { it.transfer == null && it.id !in fakeIds && it.note?.startsWith(SyncWorker.FAKE_NOTE_MARKER) != true }
             .map { PayeeLearner.HistoryRecord(it.id, it.counterParty, it.category?.id, it.category?.name) }
         val assignedByApp = dao.sentAssignments()
             .mapNotNull { a -> a.walletRecordId?.let { it to a.categoryId } }

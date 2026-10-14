@@ -12,10 +12,14 @@ import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.Transaction
+import androidx.room.Update
 import androidx.room.Upsert
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
+import su.iho.tbc2wallet.categorize.AppliesTo
+import su.iho.tbc2wallet.categorize.MatchType
+import su.iho.tbc2wallet.categorize.UserRule
 
 enum class TxStatus {
     PENDING,        // parsed, waiting to be sent
@@ -55,7 +59,19 @@ data class UserRuleEntity(
     val appliesTo: String,   // ANY / EXPENSE / INCOME
     val categoryId: String,
     val categoryName: String,
+    val labelIds: String = "",     // Wallet label ids, joined with \n
+    val labelNames: String = "",   // their names at the time, same order
+    // Set = record matches as a transfer to (expense) / from (income) this Wallet account, not a category.
+    val transferAccountId: String? = null,
+    val transferAccountName: String? = null,
 )
+
+val UserRuleEntity.labelIdList: List<String> get() = labelIds.split("\n").filter { it.isNotBlank() }
+val UserRuleEntity.labelNameList: List<String> get() = labelNames.split("\n").filter { it.isNotBlank() }
+
+fun UserRuleEntity.toUserRule() =
+    UserRule(pattern, MatchType.valueOf(matchType), AppliesTo.valueOf(appliesTo), categoryId, categoryName, labelIdList,
+        transferAccountId, transferAccountName)
 
 @Entity(tableName = "wallet_rules")
 data class WalletRuleEntity(
@@ -84,6 +100,12 @@ data class CategoryEntity(
 
 val CategoryEntity.displayName: String
     get() = if (parentName.isNullOrBlank()) name else "$parentName › $name"
+
+@Entity(tableName = "labels")
+data class LabelEntity(
+    @PrimaryKey val id: String,
+    val name: String,
+)
 
 @Entity(tableName = "accounts")
 data class AccountEntity(
@@ -120,9 +142,10 @@ abstract class AppDao {
     abstract suspend fun requeueNeedsAccount()
 
     // --- rules & caches
-    @Query("SELECT * FROM user_rules ORDER BY pattern") abstract fun observeUserRules(): Flow<List<UserRuleEntity>>
-    @Query("SELECT * FROM user_rules") abstract suspend fun userRules(): List<UserRuleEntity>
+    @Query("SELECT * FROM user_rules ORDER BY pattern COLLATE NOCASE, id") abstract fun observeUserRules(): Flow<List<UserRuleEntity>>
+    @Query("SELECT * FROM user_rules ORDER BY id") abstract suspend fun userRules(): List<UserRuleEntity>
     @Insert abstract suspend fun insertUserRule(rule: UserRuleEntity)
+    @Update abstract suspend fun updateUserRule(rule: UserRuleEntity)
     @Query("DELETE FROM user_rules WHERE id = :id") abstract suspend fun deleteUserRule(id: Long)
 
     @Query("SELECT * FROM wallet_rules") abstract suspend fun walletRules(): List<WalletRuleEntity>
@@ -132,6 +155,7 @@ abstract class AppDao {
     @Transaction open suspend fun replaceWalletRules(rules: List<WalletRuleEntity>) { clearWalletRules(); insertWalletRules(rules) }
 
     @Query("SELECT * FROM learned") abstract suspend fun learned(): List<LearnedEntity>
+    @Query("SELECT * FROM learned ORDER BY payeeKey") abstract fun observeLearned(): Flow<List<LearnedEntity>>
     @Query("SELECT COUNT(*) FROM learned") abstract fun observeLearnedCount(): Flow<Int>
     @Query("DELETE FROM learned") abstract suspend fun clearLearned()
     @Insert abstract suspend fun insertLearned(items: List<LearnedEntity>)
@@ -141,6 +165,11 @@ abstract class AppDao {
     @Query("DELETE FROM categories") abstract suspend fun clearCategories()
     @Insert abstract suspend fun insertCategories(items: List<CategoryEntity>)
     @Transaction open suspend fun replaceCategories(items: List<CategoryEntity>) { clearCategories(); insertCategories(items) }
+
+    @Query("SELECT * FROM labels ORDER BY name") abstract fun observeLabels(): Flow<List<LabelEntity>>
+    @Query("DELETE FROM labels") abstract suspend fun clearLabels()
+    @Insert abstract suspend fun insertLabels(items: List<LabelEntity>)
+    @Transaction open suspend fun replaceLabels(items: List<LabelEntity>) { clearLabels(); insertLabels(items) }
 
     @Query("SELECT * FROM accounts ORDER BY name") abstract fun observeAccounts(): Flow<List<AccountEntity>>
     @Query("DELETE FROM accounts") abstract suspend fun clearAccounts()
@@ -153,9 +182,9 @@ data class SentAssignment(val dedupKey: String, val walletRecordId: String?, val
 @Database(
     entities = [
         TransactionEntity::class, UserRuleEntity::class, WalletRuleEntity::class,
-        LearnedEntity::class, CategoryEntity::class, AccountEntity::class,
+        LearnedEntity::class, CategoryEntity::class, AccountEntity::class, LabelEntity::class,
     ],
-    version = 2,
+    version = 4,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -165,14 +194,32 @@ abstract class AppDatabase : RoomDatabase() {
         @Volatile private var instance: AppDatabase? = null
         fun get(context: Context): AppDatabase = instance ?: synchronized(this) {
             instance ?: Room.databaseBuilder(context.applicationContext, AppDatabase::class.java, "tbc2wallet.db")
-                .addMigrations(MIGRATION_1_2)
+                .addMigrations(*(1..3).map(::catchUp).toTypedArray())
                 .build().also { instance = it }
         }
 
-        private val MIGRATION_1_2 = object : Migration(1, 2) {
+        /**
+         * Version 2 and 3 were reached by different branches (fake transactions; rule labels;
+         * transfer rules), so a phone may be on any mix of them. Every old version jumps straight
+         * to the current one and adds only what's missing.
+         */
+        private fun catchUp(from: Int) = object : Migration(from, 4) {
             override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL("ALTER TABLE transactions ADD COLUMN isFake INTEGER NOT NULL DEFAULT 0")
+                db.addColumnIfMissing("transactions", "isFake", "INTEGER NOT NULL DEFAULT 0")
+                db.addColumnIfMissing("user_rules", "labelIds", "TEXT NOT NULL DEFAULT ''")
+                db.addColumnIfMissing("user_rules", "labelNames", "TEXT NOT NULL DEFAULT ''")
+                db.addColumnIfMissing("user_rules", "transferAccountId", "TEXT")
+                db.addColumnIfMissing("user_rules", "transferAccountName", "TEXT")
+                db.execSQL("CREATE TABLE IF NOT EXISTS labels (id TEXT NOT NULL, name TEXT NOT NULL, PRIMARY KEY(id))")
             }
+        }
+
+        private fun SupportSQLiteDatabase.addColumnIfMissing(table: String, column: String, type: String) {
+            val exists = query("PRAGMA table_info($table)").use { c ->
+                val name = c.getColumnIndexOrThrow("name")
+                generateSequence { if (c.moveToNext()) c.getString(name) else null }.any { it == column }
+            }
+            if (!exists) execSQL("ALTER TABLE $table ADD COLUMN $column $type")
         }
     }
 }

@@ -17,6 +17,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -37,11 +39,14 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -59,6 +64,8 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -88,8 +95,15 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import su.iho.tbc2wallet.categorize.CategoryTree
 import su.iho.tbc2wallet.data.AccountEntity
+import su.iho.tbc2wallet.categorize.CategoryResolver
+import su.iho.tbc2wallet.categorize.RuleClash
+import su.iho.tbc2wallet.categorize.RuleClashes
 import su.iho.tbc2wallet.data.CategoryEntity
+import su.iho.tbc2wallet.data.LearnedEntity
 import su.iho.tbc2wallet.data.displayName
+import su.iho.tbc2wallet.data.labelIdList
+import su.iho.tbc2wallet.data.labelNameList
+import su.iho.tbc2wallet.data.toUserRule
 import su.iho.tbc2wallet.data.TransactionEntity
 import su.iho.tbc2wallet.data.TxStatus
 import su.iho.tbc2wallet.data.UserRuleEntity
@@ -117,9 +131,9 @@ private enum class Tab(val label: String) { ACTIVITY("Activity"), RULES("Rules")
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun App(vm: MainViewModel) {
+internal fun App(vm: MainViewModel) { // internal for the screenshot tests
     var tab by rememberSaveable { mutableStateOf(if (vm.settings.hasToken) Tab.ACTIVITY else Tab.SETTINGS) }
-    var ruleDraft by remember { mutableStateOf<String?>(null) } // non-null = rule dialog open
+    var ruleDraft by remember { mutableStateOf<UserRuleEntity?>(null) } // non-null = rule dialog open; id 0 = new rule
     var simulating by rememberSaveable { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
     val message by vm.message.collectAsState()
@@ -148,7 +162,7 @@ private fun App(vm: MainViewModel) {
             }
         },
         floatingActionButton = {
-            if (tab == Tab.RULES) FloatingActionButton(onClick = { ruleDraft = "" }) { Icon(Icons.Default.Add, "Add rule") }
+            if (tab == Tab.RULES) FloatingActionButton(onClick = { ruleDraft = newRule("") }) { Icon(Icons.Default.Add, "Add rule") }
             if (tab == Tab.ACTIVITY) ExtendedFloatingActionButton(
                 onClick = { simulating = true },
                 icon = { Icon(Icons.Default.Add, null) },
@@ -159,21 +173,24 @@ private fun App(vm: MainViewModel) {
         Column(Modifier.padding(padding).fillMaxSize()) {
             if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
             when (tab) {
-                Tab.ACTIVITY -> ActivityScreen(vm, onMakeRule = { ruleDraft = it })
-                Tab.RULES -> RulesScreen(vm)
+                Tab.ACTIVITY -> ActivityScreen(vm, onMakeRule = { ruleDraft = newRule(it) })
+                Tab.RULES -> RulesScreen(vm, onEdit = { ruleDraft = it })
                 Tab.SETTINGS -> SettingsScreen(vm)
             }
         }
     }
 
     ruleDraft?.let { draft ->
-        RuleDialog(vm, initialPattern = draft, onDismiss = { ruleDraft = null })
+        RuleDialog(vm, initial = draft, onDismiss = { ruleDraft = null })
     }
     if (simulating) FakeNotificationDialog(
         onSubmit = { vm.simulateNotification(it); simulating = false },
         onDismiss = { simulating = false },
     )
 }
+
+private fun newRule(pattern: String) =
+    UserRuleEntity(pattern = pattern, matchType = "CONTAINS", appliesTo = "ANY", categoryId = "", categoryName = "")
 
 // ---------------------------------------------------------------- Activity
 
@@ -236,6 +253,8 @@ private fun categoryLine(tx: TransactionEntity): String = when (tx.categorySourc
     "USER_RULE" -> "Category: ${tx.categoryName} · your rule"
     "WALLET_RULE" -> "Category: ${tx.categoryName} · Wallet rule"
     "LEARNED" -> "Category: ${tx.categoryName} · learned from history"
+    SyncWorker.TRANSFER_SOURCE ->
+        (if (tx.kind == "EXPENSE") "Transfer to " else "Transfer from ") + "${tx.categoryName} · your rule"
     else -> "Category: ${tx.categoryName}"
 }
 
@@ -288,18 +307,25 @@ private fun FakeNotificationDialog(onSubmit: (String) -> Unit, onDismiss: () -> 
 // ---------------------------------------------------------------- Rules
 
 @Composable
-private fun RulesScreen(vm: MainViewModel) {
+private fun RulesScreen(vm: MainViewModel, onEdit: (UserRuleEntity) -> Unit) {
     val rules by vm.userRules.collectAsState()
     val walletRules by vm.walletRuleCount.collectAsState()
-    val learned by vm.learnedCount.collectAsState()
-    LazyColumn(contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    val learned by vm.learned.collectAsState()
+    var learnedOpen by rememberSaveable { mutableStateOf(false) }
+    val clashes = remember(rules) { RuleClashes.find(rules.sortedBy { it.id }) { it.toUserRule() } }
+    val clashing = remember(clashes) { clashes.flatMap { listOf(it.first.id, it.second.id) }.toSet() }
+    // Extra bottom space so the + button never covers the last row.
+    LazyColumn(
+        contentPadding = PaddingValues(start = 12.dp, top = 12.dp, end = 12.dp, bottom = 88.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
         item {
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("How a category is chosen", style = MaterialTheme.typography.titleSmall)
                     Text("1. Your rules below — always win")
                     Text("2. Wallet's own rules ($walletRules loaded)")
-                    Text("3. Learned from your history ($learned payees)")
+                    Text("3. Learned from your history (${learned.size} payees)")
                     Text("4. Otherwise none — Wallet marks it Unknown")
                     Text(
                         "History is re-read weekly. If you fix a category in Wallet, that correction counts triple next time.",
@@ -309,37 +335,157 @@ private fun RulesScreen(vm: MainViewModel) {
             }
         }
         if (rules.isEmpty()) item { EmptyState("No rules yet. Tap + or use \"Rule…\" on a transaction.") }
-        items(rules, key = { it.id }) { rule -> RuleRow(rule, onDelete = { vm.deleteRule(rule) }) }
-    }
-}
-
-@Composable
-private fun RuleRow(rule: UserRuleEntity, onDelete: () -> Unit) {
-    Card(Modifier.fillMaxWidth()) {
-        Row(Modifier.padding(start = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f).padding(vertical = 10.dp)) {
-                val how = if (rule.matchType == "EXACT") "is" else "contains"
-                val scope = when (rule.appliesTo) { "EXPENSE" -> " · expenses"; "INCOME" -> " · income"; else -> "" }
-                Text("Payee $how “${rule.pattern}”$scope", style = MaterialTheme.typography.bodyMedium)
-                Text("→ ${rule.categoryName}", style = MaterialTheme.typography.bodySmall)
+        else item { Text("Tap a rule to edit it.", style = MaterialTheme.typography.bodySmall) }
+        items(clashes, key = { "clash-${it.first.id}-${it.second.id}" }) { clash ->
+            ClashCard(clash, onKeep = { keep -> vm.deleteRule(if (keep == clash.first) clash.second else clash.first) }, onEdit = onEdit)
+        }
+        items(rules, key = { it.id }) { rule ->
+            RuleRow(rule, clashing = rule.id in clashing, onEdit = { onEdit(rule) }, onDelete = { vm.deleteRule(rule) })
+        }
+        if (learned.isNotEmpty()) {
+            item(key = "learned-header") {
+                Row(
+                    Modifier.fillMaxWidth().clickable { learnedOpen = !learnedOpen }.padding(top = 8.dp, bottom = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("Learned from your history (${learned.size})", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+                    Icon(
+                        if (learnedOpen) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                        if (learnedOpen) "Collapse" else "Expand",
+                    )
+                }
             }
-            IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, "Delete rule") }
+            if (learnedOpen) {
+                item(key = "learned-hint") {
+                    Text(
+                        "Rebuilt from Wallet every week. Tap one to turn it into your own rule.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                items(learned, key = { "learned-" + it.payeeKey }) { entry ->
+                    LearnedRow(entry, onClick = {
+                        onEdit(newRule(entry.payeeKey).copy(
+                            matchType = "EXACT", categoryId = entry.categoryId, categoryName = entry.categoryName,
+                        ))
+                    })
+                }
+            }
         }
     }
 }
 
 @Composable
-private fun RuleDialog(vm: MainViewModel, initialPattern: String, onDismiss: () -> Unit) {
+private fun RuleRow(rule: UserRuleEntity, clashing: Boolean, onEdit: () -> Unit, onDelete: () -> Unit) {
+    Card(Modifier.fillMaxWidth().clickable(onClick = onEdit)) {
+        Row(Modifier.padding(start = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f).padding(vertical = 10.dp)) {
+                val how = if (rule.matchType == "EXACT") "is" else "contains"
+                val scope = when (rule.appliesTo) { "EXPENSE" -> " · expenses"; "INCOME" -> " · income"; else -> "" }
+                Text("Payee $how “${rule.pattern}”$scope", style = MaterialTheme.typography.bodyMedium)
+                val labels = rule.labelNameList.joinToString("") { " · #$it" }
+                Text("→ ${ruleTarget(rule)}$labels", style = MaterialTheme.typography.bodySmall)
+            }
+            if (clashing) Icon(Icons.Default.Warning, "Clashes with another rule", tint = MaterialTheme.colorScheme.error)
+            IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, "Delete rule") }
+        }
+    }
+}
+
+private fun ruleSummary(rule: UserRuleEntity): String {
+    val how = if (rule.matchType == "EXACT") "is" else "contains"
+    val scope = when (rule.appliesTo) { "EXPENSE" -> " for expenses"; "INCOME" -> " for income"; else -> "" }
+    return "payee $how “${rule.pattern}”$scope"
+}
+
+private fun ruleTarget(rule: UserRuleEntity) = rule.transferAccountName?.let { "Transfer with $it" } ?: rule.categoryName
+
+private fun ruleOutcome(rule: UserRuleEntity) = ruleTarget(rule) + rule.labelNameList.joinToString("") { " #$it" }
+
+/**
+ * Short name for a rule on a clash button. Adds "exact" and the scope when set, and the category
+ * and labels if that's still not enough, so the two buttons never read the same.
+ */
+private fun clashButtonName(rule: UserRuleEntity, other: UserRuleEntity): String {
+    fun base(r: UserRuleEntity) = "“${r.pattern}”" + listOfNotNull(
+        "exact".takeIf { r.matchType == "EXACT" },
+        when (r.appliesTo) { "EXPENSE" -> "expenses"; "INCOME" -> "income"; else -> null },
+    ).takeIf { it.isNotEmpty() }?.joinToString(prefix = " (", postfix = ")").orEmpty()
+    val name = base(rule)
+    return if (name.equals(base(other), ignoreCase = true)) "$name → ${ruleOutcome(rule)}" else name
+}
+
+/** Two rules that can match the same payee but disagree; only [RuleClash.winner] is applied. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ClashCard(clash: RuleClash<UserRuleEntity>, onKeep: (UserRuleEntity) -> Unit, onEdit: (UserRuleEntity) -> Unit) {
+    val (a, b) = clash.first to clash.second
+    Card(
+        Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+    ) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Icon(Icons.Default.Warning, null)
+                Text("These rules clash", style = MaterialTheme.typography.titleSmall)
+            }
+            Text("• ${ruleSummary(a).replaceFirstChar { it.uppercase() }} → ${ruleOutcome(a)}", style = MaterialTheme.typography.bodySmall)
+            Text("• ${ruleSummary(b).replaceFirstChar { it.uppercase() }} → ${ruleOutcome(b)}", style = MaterialTheme.typography.bodySmall)
+            Text(
+                "A payee matching both gets ${ruleOutcome(clash.winner)}, from the rule where ${ruleSummary(clash.winner)}.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            for (rule in listOf(a, b)) {
+                FlowRow {
+                    TextButton(onClick = { onKeep(rule) }) { Text("Keep only ${clashButtonName(rule, other = if (rule == a) b else a)}") }
+                    TextButton(onClick = { onEdit(rule) }) { Text("Edit") }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LearnedRow(entry: LearnedEntity, onClick: () -> Unit) {
+    val used = entry.votes >= CategoryResolver.MIN_VOTES &&
+        entry.votes.toDouble() / entry.totalVotes >= CategoryResolver.MIN_SHARE
+    Card(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+            Text("Payee is “${entry.payeeKey}”", style = MaterialTheme.typography.bodyMedium)
+            Text(
+                "→ ${entry.categoryName} · ${entry.votes} of ${entry.totalVotes} votes" + if (used) "" else " · not used yet",
+                style = MaterialTheme.typography.bodySmall,
+                color = if (used) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun RuleDialog(vm: MainViewModel, initial: UserRuleEntity, onDismiss: () -> Unit) {
     val categories by vm.categories.collectAsState()
-    var pattern by remember { mutableStateOf(initialPattern) }
-    var matchType by remember { mutableStateOf("CONTAINS") }
-    var appliesTo by remember { mutableStateOf("ANY") }
+    val labels by vm.labels.collectAsState()
+    val accounts by vm.accounts.collectAsState()
+    // A prefilled transfer account (id + name) is kept even if it's no longer in the loaded list.
+    var transferAccount by remember {
+        mutableStateOf(initial.transferAccountId?.let { it to (initial.transferAccountName ?: it) })
+    }
+    var asTransfer by remember { mutableStateOf(initial.transferAccountId != null) }
+    // label id -> name; starts from the rule so its labels survive even if Wallet's list isn't loaded.
+    var chosenLabels by remember { mutableStateOf(initial.labelIdList.zip(initial.labelNameList).toMap()) }
+    val editing = initial.id != 0L
+    var pattern by remember { mutableStateOf(initial.pattern) }
+    var matchType by remember { mutableStateOf(initial.matchType) }
+    var appliesTo by remember { mutableStateOf(initial.appliesTo) }
     var query by remember { mutableStateOf("") }
-    var selected by remember { mutableStateOf<CategoryEntity?>(null) }
+    // A prefilled category (id + name) is kept even if it's no longer in the loaded list.
+    var selected by remember {
+        mutableStateOf(initial.categoryId.takeIf { it.isNotEmpty() }?.let { CategoryEntity(it, initial.categoryName, null) })
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Category rule") },
+        title = { Text(if (editing) "Edit rule" else "New rule") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(pattern, { pattern = it }, label = { Text("Payee text") }, singleLine = true)
@@ -352,7 +498,41 @@ private fun RuleDialog(vm: MainViewModel, initialPattern: String, onDismiss: () 
                         FilterChip(appliesTo == v, { appliesTo = v }, label = { Text(l) })
                     }
                 }
-                if (categories.isEmpty()) {
+                Text("Record as", style = MaterialTheme.typography.labelLarge)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FilterChip(!asTransfer, { asTransfer = false }, label = { Text("Category") })
+                    FilterChip(asTransfer, { asTransfer = true }, label = { Text("Transfer") })
+                }
+                Text("Labels", style = MaterialTheme.typography.labelLarge)
+                // Labels on the rule that Wallet no longer lists still show, so they can be removed.
+                val shown = labels.map { it.id to it.name } + chosenLabels.filterKeys { id -> labels.none { it.id == id } }.toList()
+                if (shown.isEmpty()) {
+                    Text("No labels loaded from Wallet.", style = MaterialTheme.typography.bodySmall)
+                } else {
+                    // Capped and scrollable so a long label list can't push the category picker out of the dialog.
+                    FlowRow(
+                        Modifier.heightIn(max = 120.dp).verticalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        shown.forEach { (id, name) ->
+                            FilterChip(
+                                selected = id in chosenLabels,
+                                onClick = { chosenLabels = if (id in chosenLabels) chosenLabels - id else chosenLabels + (id to name) },
+                                label = { Text(name) },
+                            )
+                        }
+                    }
+                }
+                if (asTransfer) {
+                    // Wallet creates the other side of the transfer there, which it won't do in a bank-synced account.
+                    TransferAccountPicker(accounts.filterNot { it.isBankSync }, transferAccount) { transferAccount = it }
+                    Text(
+                        "An expense becomes a transfer to this account, income a transfer from it.",
+                        style = MaterialTheme.typography.bodySmall,
+                        // As wide as the field above; a long line would otherwise widen the whole dialog.
+                        modifier = Modifier.widthIn(max = OutlinedTextFieldDefaults.MinWidth),
+                    )
+                } else if (categories.isEmpty() && selected == null) {
                     Text("No categories loaded. Add your token in Settings and tap Refresh.", color = MaterialTheme.colorScheme.error)
                 } else {
                     OutlinedTextField(
@@ -366,11 +546,30 @@ private fun RuleDialog(vm: MainViewModel, initialPattern: String, onDismiss: () 
         },
         confirmButton = {
             TextButton(
-                enabled = pattern.isNotBlank() && selected != null,
-                onClick = { vm.addRule(pattern, matchType, appliesTo, selected!!); onDismiss() },
+                enabled = pattern.isNotBlank() && if (asTransfer) transferAccount != null else selected != null,
+                onClick = {
+                    val transfer = transferAccount.takeIf { asTransfer }
+                    vm.saveRule(initial.copy(
+                        pattern = pattern, matchType = matchType, appliesTo = appliesTo,
+                        categoryId = if (transfer == null) selected!!.id else "",
+                        categoryName = if (transfer == null) selected!!.displayName else "",
+                        transferAccountId = transfer?.first, transferAccountName = transfer?.second,
+                        labelIds = chosenLabels.keys.joinToString("\n"),
+                        // Prefer Wallet's current name in case a label was renamed since the rule was saved.
+                        labelNames = chosenLabels.map { (id, name) -> labels.firstOrNull { it.id == id }?.name ?: name }.joinToString("\n"),
+                    ))
+                    onDismiss()
+                },
             ) { Text("Save") }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = {
+            Row {
+                if (editing) TextButton(onClick = { vm.deleteRule(initial); onDismiss() }) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
+                TextButton(onClick = onDismiss) { Text("Cancel") }
+            }
+        },
     )
 }
 
@@ -555,6 +754,36 @@ private fun AccountPicker(currency: String, options: List<AccountEntity>, select
                 )
             }
             if (selected != null) DropdownMenuItem(text = { Text("Clear") }, onClick = { onSelect(null); expanded = false })
+        }
+    }
+}
+
+/** A Wallet account for the other side of a transfer. [selected] is (id, name). */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TransferAccountPicker(
+    options: List<AccountEntity>, selected: Pair<String, String>?, onSelect: (Pair<String, String>) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    ExposedDropdownMenuBox(expanded, { expanded = it }) {
+        OutlinedTextField(
+            value = selected?.second ?: "Choose account", onValueChange = {}, readOnly = true,
+            label = { Text("Other account") },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
+            // Default text field width, like the dialog's other fields, so switching modes doesn't resize it.
+            modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable),
+        )
+        ExposedDropdownMenu(expanded, { expanded = false }) {
+            if (options.isEmpty()) DropdownMenuItem(
+                text = { Text("No manual accounts loaded. Add your token in Settings and tap Refresh.") },
+                onClick = { expanded = false },
+            )
+            options.forEach { acc ->
+                DropdownMenuItem(
+                    text = { Text("${acc.name} (${acc.currency})") },
+                    onClick = { onSelect(acc.id to acc.name); expanded = false },
+                )
+            }
         }
     }
 }

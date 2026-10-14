@@ -7,8 +7,6 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import su.iho.tbc2wallet.api.WalletApi
 import su.iho.tbc2wallet.data.AppDatabase
-import su.iho.tbc2wallet.data.CategoryEntity
-import su.iho.tbc2wallet.data.displayName
 import su.iho.tbc2wallet.data.Settings
 import su.iho.tbc2wallet.data.TransactionEntity
 import su.iho.tbc2wallet.data.TxStatus
@@ -31,9 +29,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val transactions = dao.observeTransactions().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val userRules = dao.observeUserRules().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val categories = dao.observeCategories().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    val labels = dao.observeLabels().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val accounts = dao.observeAccounts().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val walletRuleCount = dao.observeWalletRuleCount().stateIn(viewModelScope, SharingStarted.Eagerly, 0)
-    val learnedCount = dao.observeLearnedCount().stateIn(viewModelScope, SharingStarted.Eagerly, 0)
+    val learned = dao.observeLearned().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message.asStateFlow()
@@ -105,11 +104,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun ignore(tx: TransactionEntity) = viewModelScope.launch { dao.setStatus(tx.dedupKey, TxStatus.IGNORED) }
 
-    fun addRule(pattern: String, matchType: String, appliesTo: String, category: CategoryEntity) = viewModelScope.launch {
-        dao.insertUserRule(UserRuleEntity(
-            pattern = pattern.trim(), matchType = matchType, appliesTo = appliesTo,
-            categoryId = category.id, categoryName = category.displayName,
-        ))
+    /** Inserts [rule] when its id is 0, otherwise replaces the existing rule with that id. */
+    fun saveRule(rule: UserRuleEntity) = viewModelScope.launch {
+        val clean = rule.copy(pattern = rule.pattern.trim())
+        if (clean.id == 0L) dao.insertUserRule(clean) else dao.updateUserRule(clean)
     }
 
     fun deleteRule(rule: UserRuleEntity) = viewModelScope.launch { dao.deleteUserRule(rule.id) }
