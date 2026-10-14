@@ -46,7 +46,7 @@ class Settings(context: Context) {
         get() = mapping.getStringSet("seen_currencies", setOf("GEL")) ?: setOf("GEL")
         set(value) = mapping.edit().putStringSet("seen_currencies", value).apply()
 
-    /** Learned payees you removed; the weekly re-learn skips them. Backed up with the mapping. */
+    /** Learned payees you removed; the daily re-learn skips them. Backed up with the mapping. */
     var forgottenPayees: Set<String>
         get() = mapping.getStringSet("forgotten_payees", emptySet()) ?: emptySet()
         set(value) = mapping.edit().putStringSet("forgotten_payees", value).apply()

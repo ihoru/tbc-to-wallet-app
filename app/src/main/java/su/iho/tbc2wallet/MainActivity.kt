@@ -334,7 +334,7 @@ private fun RulesScreen(vm: MainViewModel, onEdit: (UserRuleEntity) -> Unit) {
                     Text("3. Learned from your history (${learned.size} payees)")
                     Text("4. Otherwise none — Wallet marks it Unknown")
                     Text(
-                        "History is re-read weekly. If you fix a category in Wallet, that correction counts triple next time.",
+                        "History is re-read daily. If you fix a category in Wallet, that correction counts triple next time.",
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
@@ -364,7 +364,7 @@ private fun RulesScreen(vm: MainViewModel, onEdit: (UserRuleEntity) -> Unit) {
             if (learnedOpen) {
                 item(key = "learned-hint") {
                     Text(
-                        "Rebuilt from Wallet every week. Tap one to turn it into your own rule, or swipe it away to forget it.",
+                        "Rebuilt from Wallet every day. Tap one to turn it into your own rule, or swipe it away to forget it.",
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
