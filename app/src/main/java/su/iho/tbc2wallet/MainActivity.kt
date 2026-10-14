@@ -199,7 +199,7 @@ internal fun App(vm: MainViewModel) { // internal for the screenshot tests
 }
 
 private fun newRule(pattern: String) =
-    UserRuleEntity(pattern = pattern, matchType = "CONTAINS", appliesTo = "ANY", categoryId = "", categoryName = "")
+    UserRuleEntity(pattern = pattern, matchType = "EXACT", appliesTo = "ANY", categoryId = "", categoryName = "")
 
 // ---------------------------------------------------------------- Activity
 
