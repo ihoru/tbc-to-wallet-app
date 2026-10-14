@@ -104,7 +104,12 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import su.iho.tbc2wallet.categorize.CategoryTree
 import su.iho.tbc2wallet.data.AccountEntity
+import su.iho.tbc2wallet.categorize.AppliesTo
 import su.iho.tbc2wallet.categorize.CategoryResolver
+import su.iho.tbc2wallet.categorize.MatchType
+import su.iho.tbc2wallet.categorize.UserRule
+import su.iho.tbc2wallet.categorize.matches
+import su.iho.tbc2wallet.parse.TxKind
 import su.iho.tbc2wallet.categorize.RuleClash
 import su.iho.tbc2wallet.categorize.RuleClashes
 import su.iho.tbc2wallet.data.CategoryEntity
@@ -612,7 +617,11 @@ private fun RuleDialog(vm: MainViewModel, initial: UserRuleEntity, source: Trans
                     if (picking) CategoryPickerDialog(categories, onPick = { selected = it; picking = false }, onDismiss = { picking = false })
                 }
                 // Wallet's API can't turn an existing record into a transfer or back, so only category rules update it.
-                if (source?.walletRecordId != null && !asTransfer && source.categorySource != SyncWorker.TRANSFER_SOURCE) Text(
+                val updatesSource = source?.walletRecordId != null && !asTransfer &&
+                    source.categorySource != SyncWorker.TRANSFER_SOURCE && source.kind != null && pattern.isNotBlank() &&
+                    UserRule(pattern, MatchType.valueOf(matchType), AppliesTo.valueOf(appliesTo), "", "")
+                        .matches(TxKind.valueOf(source.kind), source.counterParty.orEmpty())
+                if (updatesSource) Text(
                     "Saving also updates this transaction's record in Wallet.",
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.widthIn(max = OutlinedTextFieldDefaults.MinWidth),

@@ -6,7 +6,6 @@ import android.provider.Settings.Secure
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import su.iho.tbc2wallet.api.WalletApi
-import su.iho.tbc2wallet.categorize.CategorySource
 import su.iho.tbc2wallet.data.LearnedEntity
 import su.iho.tbc2wallet.data.AppDatabase
 import su.iho.tbc2wallet.data.Settings
@@ -15,8 +14,8 @@ import su.iho.tbc2wallet.data.TxStatus
 import su.iho.tbc2wallet.data.UserRuleEntity
 import su.iho.tbc2wallet.ingest.Ingest
 import su.iho.tbc2wallet.ingest.TbcNotificationListener
-import su.iho.tbc2wallet.parse.TxKind
 import su.iho.tbc2wallet.sync.Catalog
+import su.iho.tbc2wallet.sync.RecordUpdater
 import su.iho.tbc2wallet.sync.SyncWorker
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -121,43 +120,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         fromTx?.let { applyRulesToSent(it.dedupKey) }
     }
 
-    /** Re-runs the category chain for a transaction already in Wallet and patches its record to match. */
+    /** Patches the Wallet record of a transaction already sent so it matches your rules. */
     private suspend fun applyRulesToSent(dedupKey: String) {
-        val tx = dao.tx(dedupKey) ?: return
-        val recordId = tx.walletRecordId
-        if (tx.status != TxStatus.SENT || recordId == null || tx.kind == null) return
-        val decision = SyncWorker.buildResolver(dao)
-            .resolve(TxKind.valueOf(tx.kind), tx.counterParty, tx.currency?.let { settings.accountFor(it) })
-        if (decision.source != CategorySource.USER_RULE) {
-            _message.value = "Rule saved. It doesn't match this transaction, so its record in Wallet stays as it is."
-            return
-        }
-        if (decision.transferAccountId != null || tx.categorySource == SyncWorker.TRANSFER_SOURCE) {
-            _message.value = "Rule saved. Wallet can't switch an existing record between a transfer and a category, " +
-                "so change this one in Wallet."
-            return
-        }
-        if (decision.categoryId == tx.categoryId && decision.labelIds.isEmpty()) {
-            if (tx.categorySource != CategorySource.USER_RULE.name) dao.upsertTx(tx.copy(categorySource = CategorySource.USER_RULE.name))
-            return
-        }
+        if (dao.tx(dedupKey)?.status != TxStatus.SENT) return   // still queued: the rule applies when it's sent
         val token = settings.apiToken ?: run { _message.value = "Rule saved. Add your Wallet API token to update the record in Wallet."; return }
-        val patch = WalletApi.RecordPatch(
-            id = recordId,
-            categoryId = decision.categoryId,
-            addLabels = decision.labelIds.ifEmpty { null }?.let { WalletApi.LabelChange(it) },
-        )
         _message.value = try {
-            val result = WalletApi(token).updateRecords(listOf(patch)).firstOrNull()
-            if (result?.success == true) {
-                // Re-read: the row may have been deleted from the list while the request was out.
-                dao.tx(dedupKey)?.let {
-                    dao.upsertTx(it.copy(categoryId = decision.categoryId, categoryName = decision.categoryName,
-                        categorySource = CategorySource.USER_RULE.name))
-                }
-                "Rule saved, and the record in Wallet now has ${decision.categoryName}."
-            } else {
-                "Rule saved, but Wallet didn't update the record: ${result?.error ?: "no answer"}"
+            when (val outcome = RecordUpdater.applyRules(dao, settings, WalletApi(token), dedupKey)) {
+                RecordUpdater.Outcome.NotSent, RecordUpdater.Outcome.Unchanged -> "Rule saved."
+                RecordUpdater.Outcome.NoRuleMatches -> "Rule saved. It doesn't match this transaction, so its record in Wallet stays as it is."
+                RecordUpdater.Outcome.TransferUnsupported ->
+                    "Rule saved. Wallet can't switch an existing record between a transfer and a category, so change this one in Wallet."
+                is RecordUpdater.Outcome.Updated -> "Rule saved, and the record in Wallet now has ${outcome.categoryName}."
+                is RecordUpdater.Outcome.Rejected -> "Rule saved, but Wallet didn't update the record: ${outcome.error}"
             }
         } catch (e: WalletApi.ApiException.Unauthorized) {
             "Rule saved, but Wallet rejected the API token, so the record there wasn't updated."

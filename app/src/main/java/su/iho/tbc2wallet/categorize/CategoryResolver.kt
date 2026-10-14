@@ -32,6 +32,19 @@ data class UserRule(
     val transferAccountName: String? = null,
 )
 
+/** True when this rule covers a [kind] transaction from [payee]. */
+fun UserRule.matches(kind: TxKind, payee: String): Boolean {
+    val kindOk = when (appliesTo) {
+        AppliesTo.ANY -> true
+        AppliesTo.EXPENSE -> kind == TxKind.EXPENSE
+        AppliesTo.INCOME -> kind == TxKind.INCOME
+    }
+    return kindOk && when (matchType) {
+        MatchType.EXACT -> CategoryResolver.payeeKey(payee) == CategoryResolver.payeeKey(pattern)
+        MatchType.CONTAINS -> payee.contains(pattern.trim(), ignoreCase = true)
+    }
+}
+
 /** A categorization rule defined in Wallet itself (GET /v1/api/record-rules). */
 data class WalletRule(
     val keywords: List<String>,
@@ -70,7 +83,7 @@ class CategoryResolver(
         val payee = counterParty?.trim().orEmpty()
         if (payee.isEmpty()) return NONE
 
-        userRules.firstOrNull { it.appliesTo(kind) && it.matches(payee) }?.let {
+        userRules.firstOrNull { it.matches(kind, payee) }?.let {
             if (it.transferAccountId != null) {
                 return CategoryDecision(null, null, CategorySource.USER_RULE, it.labelIds, it.transferAccountId, it.transferAccountName)
             }
@@ -91,17 +104,6 @@ class CategoryResolver(
             }
         }
         return NONE
-    }
-
-    private fun UserRule.appliesTo(kind: TxKind) = when (appliesTo) {
-        AppliesTo.ANY -> true
-        AppliesTo.EXPENSE -> kind == TxKind.EXPENSE
-        AppliesTo.INCOME -> kind == TxKind.INCOME
-    }
-
-    private fun UserRule.matches(payee: String) = when (matchType) {
-        MatchType.EXACT -> payeeKey(payee) == payeeKey(pattern)
-        MatchType.CONTAINS -> payee.contains(pattern.trim(), ignoreCase = true)
     }
 
     companion object {

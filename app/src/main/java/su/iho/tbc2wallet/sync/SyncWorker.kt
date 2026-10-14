@@ -63,6 +63,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         val queue = dao.toSend()
         if (queue.isEmpty()) { note("Up to date"); return false }
 
+        val rulesAtStart = dao.userRules()
         val resolver = buildResolver(dao)
         // Only look the label up when a fake record can actually be sent this run.
         val sendableFake = queue.any { tx -> tx.isFake && tx.currency?.let { settings.accountFor(it) } != null }
@@ -80,6 +81,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         val missingAccounts = mutableSetOf<String>()
         val ready = mutableListOf<Pair<TransactionEntity, WalletApi.NewRecord>>()
         var sent = 0
+        val sentKeys = mutableListOf<String>()
         var failed = 0
         var lastError = ""
 
@@ -136,7 +138,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
                     val r = results[i]
                     when {
                         r?.success == true -> {
-                            sent++
+                            sent++; sentKeys += tx.dedupKey
                             dao.upsertTx(tx.copy(status = TxStatus.SENT, walletRecordId = r.id, error = null))
                         }
                         // The fake label may have been deleted in Wallet since we looked it up: retry without it.
@@ -157,6 +159,12 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         if (labelRejected.isNotEmpty()) {
             settings.recentFakeLabel = null
             send(labelRejected, retryWithoutLabel = false)
+        }
+
+        // A rule saved while these were on their way: bring the new records in line with it.
+        if (sentKeys.isNotEmpty() && dao.userRules() != rulesAtStart) for (key in sentKeys) {
+            runCatching { RecordUpdater.applyRules(dao, settings, api, key, skipIfSame = true) }
+                .onFailure { Log.w(TAG, "re-applying rules to $key failed", it) }
         }
 
         if (missingAccounts.isNotEmpty()) Notifier.needsAccount(applicationContext, missingAccounts)
