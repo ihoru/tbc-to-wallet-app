@@ -47,6 +47,7 @@ import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -503,25 +504,10 @@ private fun RuleDialog(vm: MainViewModel, initial: UserRuleEntity, onDismiss: ()
                     FilterChip(!asTransfer, { asTransfer = false }, label = { Text("Category") })
                     FilterChip(asTransfer, { asTransfer = true }, label = { Text("Transfer") })
                 }
-                Text("Labels", style = MaterialTheme.typography.labelLarge)
                 // Labels on the rule that Wallet no longer lists still show, so they can be removed.
                 val shown = labels.map { it.id to it.name } + chosenLabels.filterKeys { id -> labels.none { it.id == id } }.toList()
-                if (shown.isEmpty()) {
-                    Text("No labels loaded from Wallet.", style = MaterialTheme.typography.bodySmall)
-                } else {
-                    // Capped and scrollable so a long label list can't push the category picker out of the dialog.
-                    FlowRow(
-                        Modifier.heightIn(max = 120.dp).verticalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        shown.forEach { (id, name) ->
-                            FilterChip(
-                                selected = id in chosenLabels,
-                                onClick = { chosenLabels = if (id in chosenLabels) chosenLabels - id else chosenLabels + (id to name) },
-                                label = { Text(name) },
-                            )
-                        }
-                    }
+                LabelPicker(shown, chosenLabels) { id, name ->
+                    chosenLabels = if (id in chosenLabels) chosenLabels - id else chosenLabels + (id to name)
                 }
                 if (asTransfer) {
                     // Wallet creates the other side of the transfer there, which it won't do in a bank-synced account.
@@ -756,6 +742,35 @@ private fun AccountPicker(currency: String, options: List<AccountEntity>, select
                 )
             }
             if (selected != null) DropdownMenuItem(text = { Text("Clear") }, onClick = { onSelect(null); expanded = false })
+        }
+    }
+}
+
+/** Multi-select drop-down of Wallet labels. [options] and [chosen] are id -> name; the menu stays open while ticking. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun LabelPicker(options: List<Pair<String, String>>, chosen: Map<String, String>, onToggle: (String, String) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    ExposedDropdownMenuBox(expanded, { expanded = it }) {
+        OutlinedTextField(
+            value = if (chosen.isEmpty()) "None" else options.filter { it.first in chosen }.joinToString(", ") { it.second },
+            onValueChange = {}, readOnly = true,
+            label = { Text("Labels") },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
+            modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable),
+        )
+        ExposedDropdownMenu(expanded, { expanded = false }) {
+            if (options.isEmpty()) DropdownMenuItem(
+                text = { Text("No labels loaded. Add your token in Settings and tap Refresh.") },
+                onClick = { expanded = false },
+            )
+            options.forEach { (id, name) ->
+                DropdownMenuItem(
+                    text = { Text(name) },
+                    leadingIcon = { Checkbox(checked = id in chosen, onCheckedChange = null) },
+                    onClick = { onToggle(id, name) },
+                )
+            }
         }
     }
 }

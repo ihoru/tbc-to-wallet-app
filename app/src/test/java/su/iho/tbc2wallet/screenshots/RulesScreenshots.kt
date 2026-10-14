@@ -1,6 +1,17 @@
 package su.iho.tbc2wallet.screenshots
 
 import android.app.Application
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Surface
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import su.iho.tbc2wallet.LabelPicker
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.test.ExperimentalTestApi
@@ -104,5 +115,23 @@ class RulesScreenshots {
         compose.onNodeWithText("Payee contains “Bolt” · expenses").performClick()
         compose.mainClock.advanceTimeBy(2_000)
         captureScreenRoboImage("$out/rule-edit-dialog.png")
+    }
+
+    @Test fun labelDropdown() {
+        // The picker on its own: finding nodes once the rule dialog is open over the app never idles.
+        compose.setContent {
+            MaterialTheme(colorScheme = lightColorScheme()) {
+                Surface(Modifier.fillMaxSize()) {
+                    Box(Modifier.padding(24.dp)) {
+                        var chosen by remember { mutableStateOf(mapOf("l1" to "delivery", "l3" to "work")) }
+                        val options = listOf("l1" to "delivery", "l4" to "trip", "l2" to "weekly", "l3" to "work")
+                        LabelPicker(options, chosen) { id, name -> chosen = if (id in chosen) chosen - id else chosen + (id to name) }
+                    }
+                }
+            }
+        }
+        compose.onNodeWithText("delivery, work").performClick()
+        compose.waitUntilAtLeastOneExists(hasText("trip"), 5_000)
+        captureScreenRoboImage("$out/rule-labels-dropdown.png")
     }
 }
