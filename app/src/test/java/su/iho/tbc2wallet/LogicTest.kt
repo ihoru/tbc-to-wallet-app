@@ -6,6 +6,11 @@ import su.iho.tbc2wallet.categorize.AppliesTo
 import su.iho.tbc2wallet.categorize.CategoryResolver
 import su.iho.tbc2wallet.categorize.CategorySource
 import su.iho.tbc2wallet.categorize.CategoryTree
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DirectionsBus
+import androidx.compose.material.icons.filled.LocalTaxi
+import androidx.compose.material.icons.filled.Restaurant
+import androidx.compose.material.icons.filled.WineBar
 import su.iho.tbc2wallet.categorize.MatchType
 import su.iho.tbc2wallet.categorize.PayeeLearner
 import su.iho.tbc2wallet.categorize.RuleClashes
@@ -13,6 +18,7 @@ import su.iho.tbc2wallet.categorize.UserRule
 import su.iho.tbc2wallet.categorize.WalletRule
 import su.iho.tbc2wallet.data.RulesBackup
 import su.iho.tbc2wallet.data.CategoryEntity
+import su.iho.tbc2wallet.data.displayName
 import su.iho.tbc2wallet.parse.TbcNotificationParser
 import su.iho.tbc2wallet.parse.TxKind
 import org.junit.Assert.assertEquals
@@ -231,7 +237,26 @@ class WalletJsonTest {
     }
 }
 
+class CategoryIconTest {
+    @Test fun groupSlugsMatchWholeAndCategoriesByTheirOwnPart() {
+        assertEquals(Icons.Default.DirectionsBus, categoryIcon("transportation")) // not "sport"
+        assertEquals(Icons.Default.LocalTaxi, categoryIcon("transportation__taxi"))
+        assertEquals(Icons.Default.Restaurant, categoryIcon("Food & Drinks"))
+        assertEquals(Icons.Default.Restaurant, categoryIcon("food_and_drinks__something_new"))
+        assertEquals(Icons.Default.WineBar, categoryIcon("food_and_drinks__bar_cafe"))
+    }
+}
+
 class CategoryTreeTest {
+    @Test fun `display name keeps the Wallet group`() {
+        fun cat(name: String, sys: String?, parent: String? = null) =
+            CategoryEntity(name, name, parent, groupId = "food_and_drinks", groupName = "Food & Drinks", systemId = sys)
+        assertEquals("Food & Drinks › Groceries", cat("Groceries", "food_and_drinks__groceries").displayName)
+        assertEquals("Food & Drinks", cat("Food & Drinks", "food_and_drinks").displayName)
+        assertEquals("Bar, cafe › Tea", cat("Tea", null, parent = "Bar, cafe").displayName)
+        assertEquals("Gifts", CategoryEntity("g", "Gifts", null).displayName)
+    }
+
     private val cats = listOf(
         CategoryEntity("3", "Restaurant", "Food & Drinks"),
         CategoryEntity("1", "Food & Drinks", null),
@@ -257,5 +282,41 @@ class CategoryTreeTest {
         assertEquals(tree, CategoryTree.filter(tree, "  "))
         // editing a picked "Parent › Child" value keeps that child listed
         assertEquals(listOf("Restaurant"), CategoryTree.filter(tree, "Food & Drinks › Restauran")[0].children.map { it.name })
+    }
+
+    private val wallet = listOf(
+        CategoryEntity("g", "Food & Drinks", null, groupId = "food_and_drinks", groupName = "Food & Drinks", color = "#f00", systemId = "food_and_drinks"),
+        CategoryEntity("r", "Restaurant", null, groupId = "food_and_drinks", groupName = "Food & Drinks", systemId = "food_and_drinks__restaurant"),
+        CategoryEntity("b", "Bar", null, groupId = "food_and_drinks", groupName = "Food & Drinks", systemId = "food_and_drinks__bar"),
+        CategoryEntity("w", "Wolt", "Restaurant", parentId = "r", groupId = "food_and_drinks", groupName = "Food & Drinks"),
+        CategoryEntity("i", "Wage", null, groupId = "income", groupName = "Income", color = "#0f0", systemId = "income__wage"),
+        CategoryEntity("s", "Rent", null, groupId = "housing", groupName = "Housing", color = "#00f", systemId = "housing__rent"),
+    )
+
+    @Test fun walletGroupsCategoriesAndCustomSubcategories() {
+        val tree = CategoryTree.build(wallet)
+        // Wallet's group order, not alphabetical.
+        assertEquals(listOf("Food & Drinks", "Housing", "Income"), tree.map { it.name })
+        val food = tree[0]
+        assertEquals("g", food.category?.id)
+        assertEquals(listOf("Bar", "Restaurant"), food.children.map { it.name })
+        assertEquals(listOf("Wolt"), food.children[1].children.map { it.name })
+        assertEquals("#f00", food.children[1].children[0].color) // inherited from the group
+        assertNull(tree[2].category) // Income has no category of its own here: heading only
+    }
+
+    @Test fun pickerSearchListsEverythingUnderAMatchingGroup() {
+        val tree = CategoryTree.build(wallet)
+        // Income has no category of its own; its categories still show for "income".
+        assertEquals(listOf("Wage" to "Income"), searchRows(tree, "income").map { it.first.name to it.second })
+        assertEquals(listOf("Wolt" to "Food & Drinks / Restaurant"), searchRows(tree, "wol").map { it.first.name to it.second })
+    }
+
+    @Test fun searchFindsDeepRowsAndEditedPaths() {
+        val tree = CategoryTree.build(wallet)
+        val f = CategoryTree.filter(tree, "wol")
+        assertEquals(listOf("Food & Drinks"), f.map { it.name })
+        assertEquals(listOf("Restaurant"), f[0].children.map { it.name })
+        assertEquals(listOf("Wolt"), CategoryTree.filter(tree, "Restaurant › Wo")[0].children[0].children.map { it.name })
     }
 }

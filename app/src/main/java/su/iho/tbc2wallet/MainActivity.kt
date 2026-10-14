@@ -17,6 +17,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -96,6 +97,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -197,7 +199,7 @@ internal fun App(vm: MainViewModel) { // internal for the screenshot tests
 }
 
 private fun newRule(pattern: String) =
-    UserRuleEntity(pattern = pattern, matchType = "CONTAINS", appliesTo = "ANY", categoryId = "", categoryName = "")
+    UserRuleEntity(pattern = pattern, matchType = "EXACT", appliesTo = "ANY", categoryId = "", categoryName = "")
 
 // ---------------------------------------------------------------- Activity
 
@@ -546,11 +548,13 @@ private fun RuleDialog(vm: MainViewModel, initial: UserRuleEntity, onDismiss: ()
     var pattern by remember { mutableStateOf(initial.pattern) }
     var matchType by remember { mutableStateOf(initial.matchType) }
     var appliesTo by remember { mutableStateOf(initial.appliesTo) }
-    var query by remember { mutableStateOf("") }
+    var picking by remember { mutableStateOf(false) }
     // A prefilled category (id + name) is kept even if it's no longer in the loaded list.
     var selected by remember {
         mutableStateOf(initial.categoryId.takeIf { it.isNotEmpty() }?.let { CategoryEntity(it, initial.categoryName, null) })
     }
+    // The live catalog entry when there is one, so the field and the saved name use its current name and group.
+    val picked = selected?.let { s -> categories.firstOrNull { it.id == s.id } ?: s }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -589,12 +593,22 @@ private fun RuleDialog(vm: MainViewModel, initial: UserRuleEntity, onDismiss: ()
                 } else if (categories.isEmpty() && selected == null) {
                     Text("No categories loaded. Add your token in Settings and tap Refresh.", color = MaterialTheme.colorScheme.error)
                 } else {
+                    // Wallet-style picker on its own screen; the field shows the pick with its badge.
+                    // A plain click target over the read-only field, so TalkBack announces it as a button.
+                    Box {
                     OutlinedTextField(
-                        value = selected?.displayName ?: query,
-                        onValueChange = { query = it; selected = null },
+                        value = picked?.displayName ?: "",
+                        onValueChange = {},
+                        readOnly = true,
                         label = { Text("Category") }, singleLine = true,
+                        placeholder = { Text("Choose…") },
+                        leadingIcon = picked?.let { c -> { CategoryIcon(c.systemId ?: c.groupId ?: c.name, c.color, 28.dp) } },
+                        trailingIcon = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null) },
+                        modifier = Modifier.fillMaxWidth(),
                     )
-                    if (selected == null) CategoryTreeList(categories, query, onSelect = { selected = it })
+                    Box(Modifier.matchParentSize().padding(top = 8.dp).clickable(onClickLabel = "Choose category", role = Role.Button) { picking = true })
+                    }
+                    if (picking) CategoryPickerDialog(categories, onPick = { selected = it; picking = false }, onDismiss = { picking = false })
                 }
             }
         },
@@ -605,8 +619,8 @@ private fun RuleDialog(vm: MainViewModel, initial: UserRuleEntity, onDismiss: ()
                     val transfer = transferAccount.takeIf { asTransfer }
                     vm.saveRule(initial.copy(
                         pattern = pattern, matchType = matchType, appliesTo = appliesTo,
-                        categoryId = if (transfer == null) selected!!.id else "",
-                        categoryName = if (transfer == null) selected!!.displayName else "",
+                        categoryId = if (transfer == null) picked!!.id else "",
+                        categoryName = if (transfer == null) picked!!.displayName else "",
                         transferAccountId = transfer?.first,
                         // Current "Name (CUR)" from Wallet, so rules saved before the currency was added pick it up.
                         transferAccountName = transfer?.let { (id, name) -> accounts.firstOrNull { it.id == id }?.let(::accountLabel) ?: name },
@@ -627,67 +641,6 @@ private fun RuleDialog(vm: MainViewModel, initial: UserRuleEntity, onDismiss: ()
             }
         },
     )
-}
-
-/**
- * Categories as a tree: parents collapsed by default, tap the arrow to show subcategories.
- * While searching, every parent with a match is shown expanded.
- */
-@Composable
-private fun CategoryTreeList(categories: List<CategoryEntity>, query: String, onSelect: (CategoryEntity) -> Unit) {
-    val tree = remember(categories) { CategoryTree.build(categories) }
-    val shown = remember(tree, query) { CategoryTree.filter(tree, query) }
-    val searching = query.isNotBlank()
-    var expanded by remember { mutableStateOf(emptySet<String>()) }
-
-    LazyColumn(Modifier.heightIn(max = 260.dp)) {
-        shown.forEach { node ->
-            val open = searching || node.name in expanded
-            item(key = "p:${node.name}") {
-                Row(
-                    Modifier.fillMaxWidth().clickable {
-                        val c = node.category
-                        if (c != null) onSelect(c)
-                        else expanded = if (node.name in expanded) expanded - node.name else expanded + node.name
-                    },
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    if (node.children.isEmpty()) Spacer(Modifier.width(48.dp))
-                    else IconButton(
-                        onClick = { expanded = if (node.name in expanded) expanded - node.name else expanded + node.name },
-                        enabled = !searching,
-                    ) {
-                        Icon(
-                            if (open) Icons.Default.KeyboardArrowDown else Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                            if (open) "Collapse ${node.name}" else "Expand ${node.name}",
-                        )
-                    }
-                    Text(
-                        node.name,
-                        Modifier.weight(1f).padding(vertical = 8.dp),
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = if (node.category == null) MaterialTheme.colorScheme.onSurfaceVariant
-                        else MaterialTheme.colorScheme.onSurface,
-                    )
-                    if (node.children.isNotEmpty()) Text(
-                        "${node.children.size}",
-                        Modifier.padding(end = 8.dp),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                HorizontalDivider()
-            }
-            if (open) items(node.children, key = { it.id }) { c ->
-                Text(
-                    c.name,
-                    Modifier.fillMaxWidth().clickable { onSelect(c) }.padding(start = 48.dp, top = 8.dp, bottom = 8.dp),
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                HorizontalDivider(Modifier.padding(start = 48.dp))
-            }
-        }
-    }
 }
 
 // ---------------------------------------------------------------- Settings

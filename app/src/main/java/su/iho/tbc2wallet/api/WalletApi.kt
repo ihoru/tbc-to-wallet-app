@@ -43,7 +43,16 @@ class WalletApi(private val token: String) {
     @Serializable data class Category(
         val id: String, val name: String = "", val parentName: String? = null,
         val archived: Boolean = false, val enabled: Boolean = true,
+        /** Set for custom subcategories only: the base category they sit under. */
+        val parentId: String? = null,
+        /** Root-level group, e.g. food_and_drinks / "Food & Drinks". */
+        val group: CategoryGroup? = null,
+        /** Hex, e.g. "#26c6da". */
+        val color: String? = null,
+        /** Set for system categories, e.g. food_and_drinks__groceries. */
+        val systemId: String? = null,
     )
+    @Serializable data class CategoryGroup(val id: String? = null, val name: String? = null)
     @Serializable data class CategoryEmbed(val id: String? = null, val name: String? = null)
     @Serializable data class RecordRule(
         val id: String, val name: String = "", val keywords: List<String> = emptyList(),

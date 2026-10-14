@@ -97,10 +97,25 @@ data class CategoryEntity(
     @PrimaryKey val id: String,
     val name: String,
     val parentName: String?,
+    val parentId: String? = null,
+    val groupId: String? = null,
+    val groupName: String? = null,
+    /** Hex as Wallet sends it, e.g. "#26c6da". */
+    val color: String? = null,
+    val systemId: String? = null,
 )
 
+/**
+ * How the category reads outside the picker: "Bar, cafe › Tea" for a custom subcategory,
+ * "Food & Drinks › Groceries" for a category inside a Wallet group, and just the name for
+ * a group's own category or one with no group.
+ */
 val CategoryEntity.displayName: String
-    get() = if (parentName.isNullOrBlank()) name else "$parentName › $name"
+    get() = when {
+        !parentName.isNullOrBlank() -> "$parentName › $name"
+        !groupName.isNullOrBlank() && systemId != groupId && !groupName.equals(name, ignoreCase = true) -> "$groupName › $name"
+        else -> name
+    }
 
 @Entity(tableName = "labels")
 data class LabelEntity(
@@ -194,7 +209,7 @@ data class SentAssignment(val dedupKey: String, val walletRecordId: String?, val
         TransactionEntity::class, UserRuleEntity::class, WalletRuleEntity::class,
         LearnedEntity::class, CategoryEntity::class, AccountEntity::class, LabelEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -205,7 +220,7 @@ abstract class AppDatabase : RoomDatabase() {
         fun get(context: Context): AppDatabase = instance ?: synchronized(this) {
             instance ?: RulesBackup(context).let { backup ->
                 Room.databaseBuilder(context.applicationContext, AppDatabase::class.java, "tbc2wallet.db")
-                    .addMigrations(*(1..3).map(::catchUp).toTypedArray())
+                    .addMigrations(*(1..4).map(::catchUp).toTypedArray())
                     .addCallback(backup.callback)
                     .build().also { backup.watch(it); instance = it }
             }
@@ -216,13 +231,14 @@ abstract class AppDatabase : RoomDatabase() {
          * transfer rules), so a phone may be on any mix of them. Every old version jumps straight
          * to the current one and adds only what's missing.
          */
-        private fun catchUp(from: Int) = object : Migration(from, 4) {
+        private fun catchUp(from: Int) = object : Migration(from, 5) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.addColumnIfMissing("transactions", "isFake", "INTEGER NOT NULL DEFAULT 0")
                 db.addColumnIfMissing("user_rules", "labelIds", "TEXT NOT NULL DEFAULT ''")
                 db.addColumnIfMissing("user_rules", "labelNames", "TEXT NOT NULL DEFAULT ''")
                 db.addColumnIfMissing("user_rules", "transferAccountId", "TEXT")
                 db.addColumnIfMissing("user_rules", "transferAccountName", "TEXT")
+                for (col in listOf("parentId", "groupId", "groupName", "color", "systemId")) db.addColumnIfMissing("categories", col, "TEXT")
                 db.execSQL("CREATE TABLE IF NOT EXISTS labels (id TEXT NOT NULL, name TEXT NOT NULL, PRIMARY KEY(id))")
             }
         }

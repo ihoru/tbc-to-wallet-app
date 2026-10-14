@@ -28,7 +28,10 @@ class Catalog(private val context: Context) {
             AccountEntity(it.id, it.name, it.currencyCode, it.isBankSync)
         })
         dao.replaceCategories(api.categories().filter { !it.archived && it.enabled }.map {
-            CategoryEntity(it.id, it.name, it.parentName)
+            CategoryEntity(
+                id = it.id, name = it.name, parentName = it.parentName, parentId = it.parentId,
+                groupId = it.group?.id, groupName = it.group?.name, color = it.color, systemId = it.systemId,
+            )
         })
         dao.replaceWalletRules(api.recordRules().mapNotNull { rule ->
             val catId = rule.category?.id ?: return@mapNotNull null

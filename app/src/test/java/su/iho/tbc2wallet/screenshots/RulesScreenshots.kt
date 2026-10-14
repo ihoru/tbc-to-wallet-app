@@ -18,6 +18,7 @@ import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
@@ -62,7 +63,7 @@ class RulesScreenshots {
         dao.replaceCategories(listOf(
             CategoryEntity("food", "Restaurant, fast-food", "Food & Drinks"),
             CategoryEntity("groceries", "Groceries", "Food & Drinks"),
-            CategoryEntity("taxi", "Taxi", "Transportation"),
+            CategoryEntity("taxi", "Taxi", null, groupId = "transportation", groupName = "Transportation", color = "#455a64", systemId = "transportation__taxi"),
             CategoryEntity("fuel", "Fuel", "Vehicle"),
         ))
         dao.replaceLabels(listOf(LabelEntity("l1", "delivery"), LabelEntity("l2", "weekly"), LabelEntity("l3", "work"), LabelEntity("l4", "trip")))
@@ -118,6 +119,14 @@ class RulesScreenshots {
         compose.onNodeWithText("Payee contains “Bolt” · expenses").performClick()
         compose.mainClock.advanceTimeBy(2_000)
         captureScreenRoboImage("$out/rule-edit-dialog.png")
+    }
+
+    @Test fun newRuleDialog() {
+        showRules()
+        compose.mainClock.autoAdvance = false
+        compose.onNodeWithContentDescription("Add rule").performClick()
+        compose.mainClock.advanceTimeBy(2_000)
+        captureScreenRoboImage("$out/rule-new-dialog.png")
     }
 
     @Test fun labelDropdown() {
