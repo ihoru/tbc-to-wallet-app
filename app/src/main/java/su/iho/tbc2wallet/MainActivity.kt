@@ -553,7 +553,9 @@ private fun RuleDialog(vm: MainViewModel, initial: UserRuleEntity, onDismiss: ()
                         pattern = pattern, matchType = matchType, appliesTo = appliesTo,
                         categoryId = if (transfer == null) selected!!.id else "",
                         categoryName = if (transfer == null) selected!!.displayName else "",
-                        transferAccountId = transfer?.first, transferAccountName = transfer?.second,
+                        transferAccountId = transfer?.first,
+                        // Current "Name (CUR)" from Wallet, so rules saved before the currency was added pick it up.
+                        transferAccountName = transfer?.let { (id, name) -> accounts.firstOrNull { it.id == id }?.let(::accountLabel) ?: name },
                         labelIds = chosenLabels.keys.joinToString("\n"),
                         // Prefer Wallet's current name in case a label was renamed since the rule was saved.
                         labelNames = chosenLabels.map { (id, name) -> labels.firstOrNull { it.id == id }?.name ?: name }.joinToString("\n"),
@@ -780,14 +782,16 @@ private fun TransferAccountPicker(
             )
             options.forEach { acc ->
                 DropdownMenuItem(
-                    text = { Text("${acc.name} (${acc.currency})") },
-                    // Stored with the currency so two accounts with the same name ("Cash") stay distinguishable.
-                    onClick = { onSelect(acc.id to "${acc.name} (${acc.currency})"); expanded = false },
+                    text = { Text(accountLabel(acc)) },
+                    onClick = { onSelect(acc.id to accountLabel(acc)); expanded = false },
                 )
             }
         }
     }
 }
+
+/** Name with currency, so two accounts with the same name ("Cash") stay distinguishable. */
+private fun accountLabel(acc: AccountEntity) = "${acc.name} (${acc.currency})"
 
 @Composable
 private fun Section(title: String, content: @Composable () -> Unit) {
