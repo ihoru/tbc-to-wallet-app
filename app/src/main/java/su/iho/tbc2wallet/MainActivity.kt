@@ -14,6 +14,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -72,6 +73,9 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -87,6 +91,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -209,10 +214,57 @@ private fun ActivityScreen(vm: MainViewModel, onMakeRule: (String) -> Unit) {
         EmptyState("No TBC transactions yet.\nThey'll appear here as notifications arrive.\nTap Fake to try one by hand.")
         return
     }
+    var deleting by remember { mutableStateOf<TransactionEntity?>(null) }
     // Extra bottom space so the Fake button never covers the last card's actions.
     LazyColumn(contentPadding = PaddingValues(start = 12.dp, top = 12.dp, end = 12.dp, bottom = 88.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        items(txs, key = { it.dedupKey }) { tx -> TransactionCard(tx, vm, onMakeRule) }
+        items(txs, key = { it.dedupKey }) { tx ->
+            SwipeToDelete(onSwiped = { deleting = tx }) { TransactionCard(tx, vm, onMakeRule) }
+        }
     }
+    deleting?.let { tx ->
+        DeleteTransactionDialog(tx, onConfirm = { vm.deleteTransaction(tx); deleting = null }, onDismiss = { deleting = null })
+    }
+}
+
+/** Swiping either way asks [onSwiped] to confirm; the card springs back until the row is really gone. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SwipeToDelete(onSwiped: () -> Unit, content: @Composable () -> Unit) {
+    // The swipe state outlives recompositions, so read the latest callback (and the row it captured).
+    val currentOnSwiped by rememberUpdatedState(onSwiped)
+    val state = rememberSwipeToDismissBoxState(confirmValueChange = {
+        if (it != SwipeToDismissBoxValue.Settled) currentOnSwiped()
+        false
+    })
+    SwipeToDismissBox(
+        state = state,
+        backgroundContent = {
+            val start = state.dismissDirection == SwipeToDismissBoxValue.StartToEnd
+            Box(
+                Modifier.fillMaxSize().background(MaterialTheme.colorScheme.errorContainer, CardDefaults.shape).padding(horizontal = 20.dp),
+                contentAlignment = if (start) Alignment.CenterStart else Alignment.CenterEnd,
+            ) {
+                Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.onErrorContainer)
+            }
+        },
+    ) { content() }
+}
+
+@Composable
+private fun DeleteTransactionDialog(tx: TransactionEntity, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    val what = tx.counterParty ?: if (tx.status == TxStatus.UNPARSED) "this unreadable notification" else "this transaction"
+    val consequence = when {
+        tx.walletRecordId != null -> "The record already in Wallet stays there; delete it in Wallet if you want it gone too."
+        tx.status in setOf(TxStatus.PENDING, TxStatus.NEEDS_ACCOUNT, TxStatus.FAILED) -> "It hasn't reached Wallet yet, and the app stops trying to send it."
+        else -> "Nothing changes in Wallet."
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Delete from this list?") },
+        text = { Text("This removes $what from the app's activity list only. $consequence") },
+        confirmButton = { TextButton(onClick = onConfirm) { Text("Delete", color = MaterialTheme.colorScheme.error) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 @Composable
@@ -271,6 +323,7 @@ private fun statusLabel(s: TxStatus) = when (s) {
     TxStatus.FAILED -> "Failed"
     TxStatus.UNPARSED -> "Unreadable"
     TxStatus.IGNORED -> "Ignored"
+    TxStatus.DELETED -> "Deleted"
 }
 
 /** A purchase dated now in Tbilisi time, so the simulated record lands in today's Wallet activity. */
