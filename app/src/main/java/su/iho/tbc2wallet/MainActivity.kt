@@ -16,6 +16,8 @@ import androidx.activity.viewModels
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.PressInteraction
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Column
@@ -95,7 +97,6 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.lifecycle.compose.LifecycleResumeEffect
-import su.iho.tbc2wallet.categorize.CategoryNode
 import su.iho.tbc2wallet.categorize.CategoryTree
 import su.iho.tbc2wallet.data.AccountEntity
 import su.iho.tbc2wallet.categorize.CategoryResolver
@@ -480,7 +481,7 @@ private fun RuleDialog(vm: MainViewModel, initial: UserRuleEntity, onDismiss: ()
     var pattern by remember { mutableStateOf(initial.pattern) }
     var matchType by remember { mutableStateOf(initial.matchType) }
     var appliesTo by remember { mutableStateOf(initial.appliesTo) }
-    var query by remember { mutableStateOf("") }
+    var picking by remember { mutableStateOf(false) }
     // A prefilled category (id + name) is kept even if it's no longer in the loaded list.
     var selected by remember {
         mutableStateOf(initial.categoryId.takeIf { it.isNotEmpty() }?.let { CategoryEntity(it, initial.categoryName, null) })
@@ -538,12 +539,21 @@ private fun RuleDialog(vm: MainViewModel, initial: UserRuleEntity, onDismiss: ()
                 } else if (categories.isEmpty() && selected == null) {
                     Text("No categories loaded. Add your token in Settings and tap Refresh.", color = MaterialTheme.colorScheme.error)
                 } else {
+                    // Wallet-style picker on its own screen; the field shows the pick with its badge.
+                    val shown = selected?.let { s -> categories.firstOrNull { it.id == s.id } ?: s }
                     OutlinedTextField(
-                        value = selected?.displayName ?: query,
-                        onValueChange = { query = it; selected = null },
+                        value = shown?.displayName ?: "",
+                        onValueChange = {},
+                        readOnly = true,
                         label = { Text("Category") }, singleLine = true,
+                        placeholder = { Text("Choose…") },
+                        leadingIcon = shown?.let { c -> { CategoryIcon(c.systemId ?: c.groupId ?: c.name, c.color, 28.dp) } },
+                        trailingIcon = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null) },
+                        interactionSource = remember { MutableInteractionSource() }.also { src ->
+                            LaunchedEffect(src) { src.interactions.collect { if (it is PressInteraction.Release) picking = true } }
+                        },
                     )
-                    if (selected == null) CategoryTreeList(categories, query, onSelect = { selected = it })
+                    if (picking) CategoryPickerDialog(categories, onPick = { selected = it; picking = false }, onDismiss = { picking = false })
                 }
             }
         },
@@ -576,78 +586,6 @@ private fun RuleDialog(vm: MainViewModel, initial: UserRuleEntity, onDismiss: ()
             }
         },
     )
-}
-
-/**
- * Categories laid out like Wallet's picker: groups, their categories and your subcategories,
- * each with Wallet's color. Rows with children start collapsed; tap the arrow to open one.
- * While searching, every row on the way to a match is open.
- */
-@Composable
-internal fun CategoryTreeList(categories: List<CategoryEntity>, query: String, onSelect: (CategoryEntity) -> Unit) {
-    val tree = remember(categories) { CategoryTree.build(categories) }
-    val shown = remember(tree, query) { CategoryTree.filter(tree, query) }
-    val searching = query.isNotBlank()
-    var expanded by remember { mutableStateOf(emptySet<String>()) }
-    val rows = remember(shown, expanded, searching) {
-        buildList<Triple<CategoryNode, Int, Boolean>> {
-            fun walk(nodes: List<CategoryNode>, depth: Int) {
-                for (n in nodes) {
-                    val open = searching || n.key in expanded
-                    add(Triple(n, depth, open))
-                    if (open) walk(n.children, depth + 1)
-                }
-            }
-            walk(shown, 0)
-        }
-    }
-
-    LazyColumn(Modifier.heightIn(max = 320.dp)) {
-        items(rows, key = { it.first.key }) { (node, depth, open) ->
-            val toggle = { expanded = if (node.key in expanded) expanded - node.key else expanded + node.key }
-            Row(
-                Modifier.fillMaxWidth()
-                    .heightIn(min = if (depth == 0) 56.dp else 48.dp)
-                    .clickable { node.category?.let(onSelect) ?: toggle() }
-                    .padding(start = (depth * 28).dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                CategoryDot(node.name, node.color, size = if (depth == 0) 36.dp else 28.dp)
-                Spacer(Modifier.width(12.dp))
-                Text(
-                    node.name,
-                    Modifier.weight(1f),
-                    style = if (depth == 0) MaterialTheme.typography.bodyLarge else MaterialTheme.typography.bodyMedium,
-                    color = if (node.category == null) MaterialTheme.colorScheme.onSurfaceVariant
-                    else MaterialTheme.colorScheme.onSurface,
-                )
-                if (node.children.isNotEmpty()) IconButton(onClick = toggle, enabled = !searching) {
-                    Icon(
-                        if (open) Icons.Default.KeyboardArrowDown else Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                        if (open) "Collapse ${node.name}" else "Expand ${node.name}",
-                    )
-                } else Spacer(Modifier.width(48.dp))
-            }
-        }
-    }
-}
-
-/** Wallet's round category badge: its color with the name's first letter. */
-@Composable
-private fun CategoryDot(name: String, hex: String?, size: androidx.compose.ui.unit.Dp) {
-    val bg = remember(hex) {
-        runCatching { androidx.compose.ui.graphics.Color(android.graphics.Color.parseColor(hex)) }.getOrNull()
-    } ?: MaterialTheme.colorScheme.outline
-    Box(
-        Modifier.size(size).background(bg, androidx.compose.foundation.shape.CircleShape),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            name.firstOrNull { it.isLetterOrDigit() }?.uppercase() ?: "?",
-            color = androidx.compose.ui.graphics.Color.White,
-            style = if (size >= 36.dp) MaterialTheme.typography.titleMedium else MaterialTheme.typography.labelLarge,
-        )
-    }
 }
 
 // ---------------------------------------------------------------- Settings

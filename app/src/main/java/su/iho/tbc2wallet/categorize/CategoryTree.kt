@@ -17,6 +17,8 @@ data class CategoryNode(
     val children: List<CategoryNode> = emptyList(),
     /** Names from the top of the tree down to this row, joined with " › ". */
     val path: String = name,
+    /** What picks the row's glyph: a system id, a group slug, or a name. */
+    val iconKey: String = name,
 )
 
 object CategoryTree {
@@ -38,12 +40,16 @@ object CategoryTree {
             c.parentId?.takeIf { it in byId } ?: baseByName[c.parentName]?.id ?: "name:${c.parentName}"
         }
 
-        fun leafOrBase(c: CategoryEntity, parentColor: String?, parentPath: String?): CategoryNode {
+        // Custom subcategories take their group's glyph, as in Wallet.
+        fun custom(c: CategoryEntity, color: String?, parentPath: String, icon: String) =
+            CategoryNode(c.id, c.name, c, c.color ?: color, path = "$parentPath › ${c.name}", iconKey = icon)
+
+        fun leafOrBase(c: CategoryEntity, parentColor: String?, parentPath: String?, groupIcon: String?): CategoryNode {
             val color = c.color ?: parentColor
             val path = parentPath?.let { "$it › ${c.name}" } ?: c.name
             val kids = customsByBase[c.id].orEmpty().sortedWith(byName)
-                .map { CategoryNode(it.id, it.name, it, it.color ?: color, path = "$path › ${it.name}") }
-            return CategoryNode(c.id, c.name, c, color, kids, path)
+                .map { custom(it, color, path, groupIcon ?: c.systemId ?: c.name) }
+            return CategoryNode(c.id, c.name, c, color, kids, path, iconKey = c.systemId ?: c.name)
         }
 
         val roots = mutableListOf<CategoryNode>()
@@ -54,12 +60,12 @@ object CategoryTree {
             val own = members.firstOrNull { it.systemId == groupId }
                 ?: members.firstOrNull { it.systemId == null && it.name == groupName }
             val color = own?.color ?: members.firstNotNullOfOrNull { it.color }
-            val kids = (members - listOfNotNull(own).toSet()).sortedWith(byName).map { leafOrBase(it, color, groupName) }
+            val kids = (members - listOfNotNull(own).toSet()).sortedWith(byName).map { leafOrBase(it, color, groupName, groupId) }
             val ownCustoms = own?.let { customsByBase[it.id] }.orEmpty().sortedWith(byName)
-                .map { CategoryNode(it.id, it.name, it, it.color ?: color, path = "$groupName › ${it.name}") }
-            roots += CategoryNode("group:$groupId", groupName, own, color, ownCustoms + kids)
+                .map { custom(it, color, groupName, groupId) }
+            roots += CategoryNode("group:$groupId", groupName, own, color, ownCustoms + kids, iconKey = groupId)
         }
-        ungrouped.forEach { roots += leafOrBase(it, null, null) }
+        ungrouped.forEach { roots += leafOrBase(it, null, null, null) }
         // Custom subcategories whose base isn't in the list (archived, say) get a heading of their own.
         customsByBase.filterKeys { it.startsWith("name:") }.forEach { (key, kids) ->
             val name = key.removePrefix("name:")

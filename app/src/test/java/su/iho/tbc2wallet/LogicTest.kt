@@ -6,6 +6,11 @@ import su.iho.tbc2wallet.categorize.AppliesTo
 import su.iho.tbc2wallet.categorize.CategoryResolver
 import su.iho.tbc2wallet.categorize.CategorySource
 import su.iho.tbc2wallet.categorize.CategoryTree
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DirectionsBus
+import androidx.compose.material.icons.filled.LocalTaxi
+import androidx.compose.material.icons.filled.Restaurant
+import androidx.compose.material.icons.filled.WineBar
 import su.iho.tbc2wallet.categorize.MatchType
 import su.iho.tbc2wallet.categorize.PayeeLearner
 import su.iho.tbc2wallet.categorize.RuleClashes
@@ -228,6 +233,16 @@ class WalletJsonTest {
         val json = WalletApi.json.encodeToString(WalletApi.NewRecord.serializer(), record)
         assertTrue(json, json.contains(""""transfer":{"accountId":"acc-usd","pairingMode":"new"}"""))
         assertTrue(json, !json.contains("categoryId"))
+    }
+}
+
+class CategoryIconTest {
+    @Test fun groupSlugsMatchWholeAndCategoriesByTheirOwnPart() {
+        assertEquals(Icons.Default.DirectionsBus, categoryIcon("transportation")) // not "sport"
+        assertEquals(Icons.Default.LocalTaxi, categoryIcon("transportation__taxi"))
+        assertEquals(Icons.Default.Restaurant, categoryIcon("Food & Drinks"))
+        assertEquals(Icons.Default.Restaurant, categoryIcon("food_and_drinks__something_new"))
+        assertEquals(Icons.Default.WineBar, categoryIcon("food_and_drinks__bar_cafe"))
     }
 }
 
