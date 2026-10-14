@@ -1,6 +1,7 @@
 package su.iho.tbc2wallet.data
 
 import android.content.Context
+import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
@@ -12,6 +13,8 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.Transaction
 import androidx.room.Upsert
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
 
 enum class TxStatus {
@@ -41,6 +44,7 @@ data class TransactionEntity(
     val categorySource: String? = null,
     val error: String? = null,
     val receivedAt: Long,
+    @ColumnInfo(defaultValue = "0") val isFake: Boolean = false,    // typed in by hand from the Activity tab to test parsing and rules
 )
 
 @Entity(tableName = "user_rules")
@@ -104,6 +108,9 @@ abstract class AppDao {
     @Query("SELECT dedupKey, walletRecordId, categoryId FROM transactions WHERE walletRecordId IS NOT NULL")
     abstract suspend fun sentAssignments(): List<SentAssignment>
 
+    @Query("SELECT walletRecordId FROM transactions WHERE isFake = 1 AND walletRecordId IS NOT NULL")
+    abstract suspend fun fakeWalletRecordIds(): List<String>
+
     @Upsert abstract suspend fun upsertTx(tx: TransactionEntity)
 
     @Query("UPDATE transactions SET status = :status, error = NULL WHERE dedupKey = :key")
@@ -148,7 +155,7 @@ data class SentAssignment(val dedupKey: String, val walletRecordId: String?, val
         TransactionEntity::class, UserRuleEntity::class, WalletRuleEntity::class,
         LearnedEntity::class, CategoryEntity::class, AccountEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -158,7 +165,14 @@ abstract class AppDatabase : RoomDatabase() {
         @Volatile private var instance: AppDatabase? = null
         fun get(context: Context): AppDatabase = instance ?: synchronized(this) {
             instance ?: Room.databaseBuilder(context.applicationContext, AppDatabase::class.java, "tbc2wallet.db")
+                .addMigrations(MIGRATION_1_2)
                 .build().also { instance = it }
+        }
+
+        private val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE transactions ADD COLUMN isFake INTEGER NOT NULL DEFAULT 0")
+            }
         }
     }
 }

@@ -46,6 +46,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
@@ -119,6 +120,7 @@ private enum class Tab(val label: String) { ACTIVITY("Activity"), RULES("Rules")
 private fun App(vm: MainViewModel) {
     var tab by rememberSaveable { mutableStateOf(if (vm.settings.hasToken) Tab.ACTIVITY else Tab.SETTINGS) }
     var ruleDraft by remember { mutableStateOf<String?>(null) } // non-null = rule dialog open
+    var simulating by rememberSaveable { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
     val message by vm.message.collectAsState()
     val busy by vm.busy.collectAsState()
@@ -147,6 +149,11 @@ private fun App(vm: MainViewModel) {
         },
         floatingActionButton = {
             if (tab == Tab.RULES) FloatingActionButton(onClick = { ruleDraft = "" }) { Icon(Icons.Default.Add, "Add rule") }
+            if (tab == Tab.ACTIVITY) ExtendedFloatingActionButton(
+                onClick = { simulating = true },
+                icon = { Icon(Icons.Default.Add, null) },
+                text = { Text("Fake") },
+            )
         },
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
@@ -162,6 +169,10 @@ private fun App(vm: MainViewModel) {
     ruleDraft?.let { draft ->
         RuleDialog(vm, initialPattern = draft, onDismiss = { ruleDraft = null })
     }
+    if (simulating) FakeNotificationDialog(
+        onSubmit = { vm.simulateNotification(it); simulating = false },
+        onDismiss = { simulating = false },
+    )
 }
 
 // ---------------------------------------------------------------- Activity
@@ -172,10 +183,11 @@ private val dateFmt = DateTimeFormatter.ofPattern("dd MMM HH:mm")
 private fun ActivityScreen(vm: MainViewModel, onMakeRule: (String) -> Unit) {
     val txs by vm.transactions.collectAsState()
     if (txs.isEmpty()) {
-        EmptyState("No TBC transactions yet.\nThey'll appear here as notifications arrive.")
+        EmptyState("No TBC transactions yet.\nThey'll appear here as notifications arrive.\nTap Fake to try one by hand.")
         return
     }
-    LazyColumn(contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    // Extra bottom space so the Fake button never covers the last card's actions.
+    LazyColumn(contentPadding = PaddingValues(start = 12.dp, top = 12.dp, end = 12.dp, bottom = 88.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         items(txs, key = { it.dedupKey }) { tx -> TransactionCard(tx, vm, onMakeRule) }
     }
 }
@@ -201,6 +213,10 @@ private fun TransactionCard(tx: TransactionEntity, vm: MainViewModel, onMakeRule
                 Text("$date · ${tx.accountLabel.orEmpty()}", style = MaterialTheme.typography.bodySmall)
                 Text(categoryLine(tx), style = MaterialTheme.typography.bodySmall)
             }
+            if (tx.isFake) Text(
+                "Fake · typed in by hand, not from TBC",
+                color = MaterialTheme.colorScheme.tertiary, style = MaterialTheme.typography.labelMedium,
+            )
             tx.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 AssistChip(onClick = {}, label = { Text(statusLabel(tx.status)) })
@@ -230,6 +246,43 @@ private fun statusLabel(s: TxStatus) = when (s) {
     TxStatus.FAILED -> "Failed"
     TxStatus.UNPARSED -> "Unreadable"
     TxStatus.IGNORED -> "Ignored"
+}
+
+/** A purchase dated now in Tbilisi time, so the simulated record lands in today's Wallet activity. */
+private fun fakeSample(): String {
+    val now = java.time.ZonedDateTime.now(su.iho.tbc2wallet.ingest.Ingest.BANK_ZONE)
+    val stamp = now.format(DateTimeFormatter.ofPattern("dd/MM/yy HH:mm"))
+    return "42.10 GEL\nTBC CARD VISA GOLD (***1234)\nShopsy $stamp\nBalance: 1500.00 GEL"
+}
+
+@Composable
+private fun FakeNotificationDialog(onSubmit: (String) -> Unit, onDismiss: () -> Unit) {
+    var text by rememberSaveable { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Fake notification") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "Paste or type the text of a TBC notification. It goes through the parser and rules " +
+                        "like a real one, then goes to Wallet marked [fake] in the note and, when Wallet allows it, " +
+                        "with the \"fake\" label.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                OutlinedTextField(
+                    text, { text = it },
+                    label = { Text("Notification text") },
+                    placeholder = { Text(fakeSample(), fontFamily = FontFamily.Monospace) },
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+                    minLines = 4,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                TextButton(onClick = { text = fakeSample() }) { Text("Use sample") }
+            }
+        },
+        confirmButton = { TextButton(enabled = text.isNotBlank(), onClick = { onSubmit(text) }) { Text("Simulate") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 // ---------------------------------------------------------------- Rules
