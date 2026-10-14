@@ -21,6 +21,16 @@ jobs:
         with:
           # Open-source GitHub Actions cache; the default 'enhanced' provider has its own commercial terms.
           cache-provider: basic
+      - name: Restore signing key
+        env:
+          SIGNING_KEYSTORE_B64: ${{ secrets.SIGNING_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$SIGNING_KEYSTORE_B64" ]; then
+            mkdir -p app/signing
+            echo "$SIGNING_KEYSTORE_B64" | base64 -d > app/signing/tbc2wallet.keystore
+          else
+            echo "::warning::SIGNING_KEYSTORE_B64 is not set; this APK won't install over builds signed with the shared key."
+          fi
       - name: Build and test
         run: ./gradlew assembleDebug test
       - name: Upload debug APK
