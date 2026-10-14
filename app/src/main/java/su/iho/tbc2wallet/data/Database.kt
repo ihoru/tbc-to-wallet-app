@@ -138,6 +138,9 @@ abstract class AppDao {
     @Query("UPDATE transactions SET status = :status, error = NULL WHERE dedupKey = :key")
     abstract suspend fun setStatus(key: String, status: TxStatus)
 
+    @Query("DELETE FROM transactions WHERE dedupKey = :key")
+    abstract suspend fun deleteTransaction(key: String)
+
     @Query("UPDATE transactions SET status = 'PENDING', error = NULL WHERE status = 'NEEDS_ACCOUNT'")
     abstract suspend fun requeueNeedsAccount()
 

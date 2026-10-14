@@ -104,6 +104,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun ignore(tx: TransactionEntity) = viewModelScope.launch { dao.setStatus(tx.dedupKey, TxStatus.IGNORED) }
 
+    /** Removes [tx] from the app's own list only; a record already in Wallet stays there. */
+    fun deleteTransaction(tx: TransactionEntity) = viewModelScope.launch { dao.deleteTransaction(tx.dedupKey) }
+
     /** Inserts [rule] when its id is 0, otherwise replaces the existing rule with that id. */
     fun saveRule(rule: UserRuleEntity) = viewModelScope.launch {
         val clean = rule.copy(pattern = rule.pattern.trim())
