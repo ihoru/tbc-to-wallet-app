@@ -2,6 +2,7 @@ package su.iho.tbc2wallet.api
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
@@ -96,6 +97,15 @@ class WalletApi(private val token: String) {
     )
     @Serializable private data class WriteResponse(val results: List<WriteResult> = emptyList())
 
+    /** Changes to one existing record (`PATCH /v1/api/records`); null fields stay as they are. */
+    @Serializable data class RecordPatch(
+        val id: String,
+        val categoryId: String? = null,
+        /** Added to the record's labels; the ones it already has (e.g. "fake") stay. */
+        @SerialName("labelIds") val addLabels: LabelChange? = null,
+    )
+    @Serializable data class LabelChange(val add: List<String>)
+
     // ---------- Endpoints
 
     suspend fun accounts(): List<Account> = paged { offset ->
@@ -147,6 +157,17 @@ class WalletApi(private val token: String) {
         val body = json.encodeToString(records).toRequestBody(JSON)
         val request = Request.Builder().url(url("records")).post(body).auth().build()
         return execute(request, acceptedCodes = setOf(200, 201, 207, 400, 500)) {
+            json.decodeFromString<WriteResponse>(it).results
+        }
+    }
+
+    /** Updates up to 10 existing records. Items succeed or fail independently. */
+    suspend fun updateRecords(patches: List<RecordPatch>): List<WriteResult> {
+        require(patches.size in 1..10)
+        val body = json.encodeToString(patches).toRequestBody(JSON)
+        val url = url("records").newBuilder().addQueryParameter("returnData", "false").build()
+        val request = Request.Builder().url(url).patch(body).auth().build()
+        return execute(request, acceptedCodes = setOf(200, 207, 400, 500)) {
             json.decodeFromString<WriteResponse>(it).results
         }
     }

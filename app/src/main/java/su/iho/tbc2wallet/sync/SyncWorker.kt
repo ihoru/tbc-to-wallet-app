@@ -16,6 +16,7 @@ import su.iho.tbc2wallet.api.WalletApi
 import su.iho.tbc2wallet.categorize.CategoryResolver
 import su.iho.tbc2wallet.categorize.LearnedEntry
 import su.iho.tbc2wallet.categorize.WalletRule
+import su.iho.tbc2wallet.data.AppDao
 import su.iho.tbc2wallet.data.AppDatabase
 import su.iho.tbc2wallet.data.Settings
 import su.iho.tbc2wallet.data.TransactionEntity
@@ -62,7 +63,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         val queue = dao.toSend()
         if (queue.isEmpty()) { note("Up to date"); return false }
 
-        val resolver = buildResolver()
+        val resolver = buildResolver(dao)
         // Only look the label up when a fake record can actually be sent this run.
         val sendableFake = queue.any { tx -> tx.isFake && tx.currency?.let { settings.accountFor(it) } != null }
         // A transient label failure (5xx, network) only holds back the fakes; real records still go.
@@ -200,17 +201,6 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         }
     }
 
-    private suspend fun buildResolver(): CategoryResolver {
-        val userRules = dao.userRules().map { it.toUserRule() }
-        val walletRules = dao.walletRules().map {
-            WalletRule(it.keywords.split("\n"), it.categoryId, it.categoryName, it.fromAccountId)
-        }
-        val learned = dao.learned().associate {
-            it.payeeKey to LearnedEntry(it.payeeKey, it.categoryId, it.categoryName, it.votes, it.totalVotes)
-        }
-        return CategoryResolver(userRules, walletRules, learned)
-    }
-
     private fun note(message: String) {
         settings.lastSyncMessage = "${java.time.LocalDateTime.now().withNano(0)}  $message"
         Log.i(TAG, message)
@@ -224,6 +214,18 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         const val TRANSFER_SOURCE = "TRANSFER"
         private const val RECENT_LABEL_MS = 15 * 60 * 1000L
         private val network = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
+
+        /** The same priority chain the worker sends with: your rules, Wallet's rules, then the learned map. */
+        suspend fun buildResolver(dao: AppDao): CategoryResolver {
+            val userRules = dao.userRules().map { it.toUserRule() }
+            val walletRules = dao.walletRules().map {
+                WalletRule(it.keywords.split("\n"), it.categoryId, it.categoryName, it.fromAccountId)
+            }
+            val learned = dao.learned().associate {
+                it.payeeKey to LearnedEntry(it.payeeKey, it.categoryId, it.categoryName, it.votes, it.totalVotes)
+            }
+            return CategoryResolver(userRules, walletRules, learned)
+        }
 
         fun enqueue(context: Context) {
             val request = OneTimeWorkRequestBuilder<SyncWorker>()
