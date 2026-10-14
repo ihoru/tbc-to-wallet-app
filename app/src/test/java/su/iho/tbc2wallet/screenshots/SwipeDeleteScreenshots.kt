@@ -4,7 +4,9 @@ import android.app.Application
 import android.content.Context
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.lightColorScheme
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
@@ -12,6 +14,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeLeft
 import androidx.test.core.app.ApplicationProvider
+import com.github.takahirom.roborazzi.ExperimentalRoborazziApi
 import com.github.takahirom.roborazzi.captureScreenRoboImage
 import kotlinx.coroutines.runBlocking
 import kotlin.concurrent.thread
@@ -29,7 +32,7 @@ import su.iho.tbc2wallet.data.TransactionEntity
 import su.iho.tbc2wallet.data.TxStatus
 
 /** Swipe a transaction card to delete it, with its confirmation, for screenshots in PRs. Run with -Pscreenshots. */
-@OptIn(ExperimentalTestApi::class)
+@OptIn(ExperimentalTestApi::class, ExperimentalRoborazziApi::class)
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [35], qualifiers = "w400dp-h860dp-xhdpi")
@@ -69,7 +72,7 @@ class SwipeDeleteScreenshots {
     @Test fun midSwipe() {
         showApp()
         compose.mainClock.autoAdvance = false
-        compose.onNodeWithText("Shopsy").performTouchInput { down(center); moveBy(androidx.compose.ui.geometry.Offset(-80f, 0f)); moveBy(androidx.compose.ui.geometry.Offset(-200f, 0f)) }
+        compose.onNodeWithText("Shopsy").performTouchInput { down(center); moveBy(Offset(-80f, 0f)); moveBy(Offset(-200f, 0f)) }
         compose.mainClock.advanceTimeBy(500)
         captureScreenRoboImage("$out/1-swiping.png")
     }
@@ -82,7 +85,7 @@ class SwipeDeleteScreenshots {
         showApp()
         compose.onNodeWithText("Shopsy").performTouchInput { swipeLeft() }
         compose.waitUntilAtLeastOneExists(hasText("Delete from this list?"), 5_000)
-        compose.onNode(hasText("Delete") and androidx.compose.ui.test.hasClickAction()).performClick()
+        compose.onNode(hasText("Delete") and hasClickAction()).performClick()
         compose.waitUntil(5_000) { compose.onAllNodes(hasText("Shopsy")).fetchSemanticsNodes().isEmpty() }
         captureScreenRoboImage("$out/4-after-delete.png")
     }
