@@ -11,11 +11,18 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
 /**
- * Plain settings (account mapping, TBC package, refresh timestamps) plus the Wallet
- * API token, which is encrypted with a key that never leaves the Android Keystore.
+ * Plain settings (TBC package, refresh timestamps) plus the Wallet API token, which is
+ * encrypted with a key that never leaves the Android Keystore.
+ *
+ * The currency → account mapping lives in its own file, [MAPPING_PREFS], which is the only
+ * prefs file included in Android backup. Everything in "settings" stays on the device:
+ * a restored token would be undecryptable without its Keystore key.
  */
 class Settings(context: Context) {
     private val prefs = context.applicationContext.getSharedPreferences("settings", Context.MODE_PRIVATE)
+    private val mapping = context.applicationContext.getSharedPreferences(MAPPING_PREFS, Context.MODE_PRIVATE)
+
+    init { moveMappingOutOfSettings() }
 
     var apiToken: String?
         get() = prefs.getString(KEY_TOKEN, null)?.let { runCatching { decrypt(it) }.getOrNull() }
@@ -30,14 +37,30 @@ class Settings(context: Context) {
         get() = prefs.getString("tbc_package", "") ?: ""
         set(value) = prefs.edit().putString("tbc_package", value.trim()).apply()
 
-    fun accountFor(currency: String): String? = prefs.getString("account_$currency", null)
+    fun accountFor(currency: String): String? = mapping.getString("account_$currency", null)
     fun setAccountFor(currency: String, accountId: String?) =
-        prefs.edit().apply { if (accountId == null) remove("account_$currency") else putString("account_$currency", accountId) }.apply()
+        mapping.edit().apply { if (accountId == null) remove("account_$currency") else putString("account_$currency", accountId) }.apply()
 
-    /** Currencies seen in notifications, so Settings can offer a mapping for each. */
+    /** Currencies seen in notifications, so Settings can offer a mapping for each. Backed up with the mapping. */
     var seenCurrencies: Set<String>
-        get() = prefs.getStringSet("seen_currencies", setOf("GEL")) ?: setOf("GEL")
-        set(value) = prefs.edit().putStringSet("seen_currencies", value).apply()
+        get() = mapping.getStringSet("seen_currencies", setOf("GEL")) ?: setOf("GEL")
+        set(value) = mapping.edit().putStringSet("seen_currencies", value).apply()
+
+    /** One-time move for installs that kept the mapping in "settings" before it was backed up. */
+    private fun moveMappingOutOfSettings() {
+        val old = prefs.all.filterKeys { it.startsWith("account_") || it == "seen_currencies" }
+        if (old.isEmpty()) return
+        val copied = mapping.edit().apply {
+            old.forEach { (k, v) ->
+                @Suppress("UNCHECKED_CAST")
+                when (v) {
+                    is String -> putString(k, v)
+                    is Set<*> -> putStringSet(k, v as Set<String>)
+                }
+            }
+        }.commit()
+        if (copied) prefs.edit().apply { old.keys.forEach(::remove) }.apply()   // else retry next time
+    }
 
     var lastCatalogRefresh: Long
         get() = prefs.getLong("last_catalog_refresh", 0)
@@ -92,8 +115,9 @@ class Settings(context: Context) {
         return String(cipher.doFinal(bytes, 12, bytes.size - 12))
     }
 
-    private companion object {
-        const val KEY_TOKEN = "wallet_token_enc"
-        const val KEY_ALIAS = "tbc2wallet_token_key"
+    companion object {
+        const val MAPPING_PREFS = "account_mapping"
+        private const val KEY_TOKEN = "wallet_token_enc"
+        private const val KEY_ALIAS = "tbc2wallet_token_key"
     }
 }

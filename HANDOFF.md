@@ -127,6 +127,13 @@ outgoing transfers yet. Anything it can't read is stored as UNPARSED and shown f
 - **Scope.** Personal use only; it will not be published to Play (notification-access and
   financial-data review would apply).
 
+## Backup
+- Android backup / device transfer carries **only** your rules and the currency → account mapping.
+  Rules are mirrored from the database to `files/backup/user_rules.json` on every change
+  (`data/RulesBackup.kt`) and read back when the database is created fresh. The mapping lives in
+  its own prefs file, `account_mapping.xml`. The token, activity log and Wallet caches are excluded
+  (`res/xml/data_extraction_rules.xml`, `res/xml/backup_rules.xml`); after a restore, paste the token again.
+
 ## Screenshots
 UI changes get screenshots in the PR. `app/src/test/.../screenshots/` renders real screens with
 Robolectric + Roborazzi from seeded sample data; it is skipped in normal test runs. Record with

@@ -1,6 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Nothing leaves the phone via cloud backup or device transfer: the token key lives in the Keystore anyway. -->
+<!--
+  Android 12+. Only your rules and the currency → account mapping are backed up / transferred.
+  Everything else stays on the phone: the Wallet token (its Keystore key is never backed up, so a
+  restored copy couldn't be decrypted), the activity log, and the Wallet caches (re-fetched anyway).
+  Keep in sync with backup_rules.xml (Android 11 and older).
+-->
 <data-extraction-rules>
-    <cloud-backup><exclude domain="root" /><exclude domain="database" /><exclude domain="sharedpref" /></cloud-backup>
-    <device-transfer><exclude domain="root" /><exclude domain="database" /><exclude domain="sharedpref" /></device-transfer>
+    <cloud-backup>
+        <include domain="file" path="backup/user_rules.json" />
+        <include domain="sharedpref" path="account_mapping.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <include domain="file" path="backup/user_rules.json" />
+        <include domain="sharedpref" path="account_mapping.xml" />
+    </device-transfer>
 </data-extraction-rules>

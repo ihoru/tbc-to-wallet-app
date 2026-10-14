@@ -193,9 +193,12 @@ abstract class AppDatabase : RoomDatabase() {
     companion object {
         @Volatile private var instance: AppDatabase? = null
         fun get(context: Context): AppDatabase = instance ?: synchronized(this) {
-            instance ?: Room.databaseBuilder(context.applicationContext, AppDatabase::class.java, "tbc2wallet.db")
-                .addMigrations(*(1..3).map(::catchUp).toTypedArray())
-                .build().also { instance = it }
+            instance ?: RulesBackup(context).let { backup ->
+                Room.databaseBuilder(context.applicationContext, AppDatabase::class.java, "tbc2wallet.db")
+                    .addMigrations(*(1..3).map(::catchUp).toTypedArray())
+                    .addCallback(backup.callback)
+                    .build().also { backup.watch(it); instance = it }
+            }
         }
 
         /**

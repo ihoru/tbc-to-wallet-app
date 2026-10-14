@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 11 and older. Same scope as data_extraction_rules.xml: rules and account mapping only. -->
+<full-backup-content>
+    <include domain="file" path="backup/user_rules.json" />
+    <include domain="sharedpref" path="account_mapping.xml" />
+</full-backup-content>
