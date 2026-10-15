@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.widget.Toast
 import android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -36,6 +37,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.List
@@ -93,6 +95,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -299,6 +304,7 @@ private fun TransactionCard(tx: TransactionEntity, vm: MainViewModel, onMakeRule
             tx.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 AssistChip(onClick = {}, label = { Text(statusLabel(tx.status)) })
+                if (tx.rawText.isNotBlank()) CopyRawTextButton(tx.rawText)
                 Spacer(Modifier.weight(1f))
                 if (tx.status == TxStatus.FAILED) TextButton(onClick = { vm.retry(tx) }) { Text("Retry") }
                 if (tx.status in setOf(TxStatus.FAILED, TxStatus.UNPARSED, TxStatus.NEEDS_ACCOUNT, TxStatus.PENDING))
@@ -306,6 +312,21 @@ private fun TransactionCard(tx: TransactionEntity, vm: MainViewModel, onMakeRule
                 if (tx.counterParty != null) TextButton(onClick = { onMakeRule(tx) }) { Text("Rule…") }
             }
         }
+    }
+}
+
+/** Copies the bank notification exactly as it arrived, e.g. to report a parsing problem. */
+@Composable
+private fun CopyRawTextButton(rawText: String) {
+    val clipboard = LocalClipboardManager.current
+    val context = LocalContext.current
+    IconButton(onClick = {
+        clipboard.setText(AnnotatedString(rawText))
+        // Android 13+ shows its own confirmation when something is copied.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU)
+            Toast.makeText(context, "Notification text copied", Toast.LENGTH_SHORT).show()
+    }) {
+        Icon(Icons.Default.ContentCopy, contentDescription = "Copy notification text", modifier = Modifier.size(20.dp))
     }
 }
 
