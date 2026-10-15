@@ -376,6 +376,7 @@ private fun RulesScreen(vm: MainViewModel, onEdit: (UserRuleEntity) -> Unit) {
     val learned by vm.learned.collectAsState()
     var learnedOpen by rememberSaveable { mutableStateOf(false) }
     var forgetting by remember { mutableStateOf<LearnedEntity?>(null) }
+    var deleting by remember { mutableStateOf<UserRuleEntity?>(null) }
     val clashes = remember(rules) { RuleClashes.find(rules.sortedBy { it.id }) { it.toUserRule() } }
     val clashing = remember(clashes) { clashes.flatMap { listOf(it.first.id, it.second.id) }.toSet() }
     // Extra bottom space so the + button never covers the last row.
@@ -404,7 +405,7 @@ private fun RulesScreen(vm: MainViewModel, onEdit: (UserRuleEntity) -> Unit) {
             ClashCard(clash, onKeep = { keep -> vm.deleteRule(if (keep == clash.first) clash.second else clash.first) }, onEdit = onEdit)
         }
         items(rules, key = { it.id }) { rule ->
-            RuleRow(rule, clashing = rule.id in clashing, onEdit = { onEdit(rule) }, onDelete = { vm.deleteRule(rule) })
+            RuleRow(rule, clashing = rule.id in clashing, onEdit = { onEdit(rule) }, onDelete = { deleting = rule })
         }
         if (learned.isNotEmpty()) {
             item(key = "learned-header") {
@@ -449,6 +450,22 @@ private fun RulesScreen(vm: MainViewModel, onEdit: (UserRuleEntity) -> Unit) {
             dismissButton = { TextButton(onClick = { forgetting = null }) { Text("Cancel") } },
         )
     }
+    deleting?.let { rule ->
+        DeleteRuleDialog(rule, onConfirm = { vm.deleteRule(rule); deleting = null }, onDismiss = { deleting = null })
+    }
+}
+
+@Composable
+private fun DeleteRuleDialog(rule: UserRuleEntity, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Delete this rule?") },
+        text = {
+            Text("${ruleSummary(rule).replaceFirstChar { it.uppercase() }} → ${ruleTarget(rule)}.\n\nRecords already in Wallet stay as they are.")
+        },
+        confirmButton = { TextButton(onClick = onConfirm) { Text("Delete", color = MaterialTheme.colorScheme.error) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 @Composable
@@ -555,6 +572,7 @@ private fun RuleDialog(vm: MainViewModel, initial: UserRuleEntity, source: Trans
     var matchType by remember { mutableStateOf(initial.matchType) }
     var appliesTo by remember { mutableStateOf(initial.appliesTo) }
     var picking by remember { mutableStateOf(false) }
+    var confirmingDelete by remember { mutableStateOf(false) }
     // A prefilled category (id + name) is kept even if it's no longer in the loaded list.
     var selected by remember {
         mutableStateOf(initial.categoryId.takeIf { it.isNotEmpty() }?.let { CategoryEntity(it, initial.categoryName, null) })
@@ -650,12 +668,17 @@ private fun RuleDialog(vm: MainViewModel, initial: UserRuleEntity, source: Trans
         },
         dismissButton = {
             Row {
-                if (editing) TextButton(onClick = { vm.deleteRule(initial); onDismiss() }) {
+                if (editing) TextButton(onClick = { confirmingDelete = true }) {
                     Text("Delete", color = MaterialTheme.colorScheme.error)
                 }
                 TextButton(onClick = onDismiss) { Text("Cancel") }
             }
         },
+    )
+    if (confirmingDelete) DeleteRuleDialog(
+        initial,
+        onConfirm = { vm.deleteRule(initial); confirmingDelete = false; onDismiss() },
+        onDismiss = { confirmingDelete = false },
     )
 }
 

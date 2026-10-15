@@ -1,6 +1,17 @@
 package su.iho.tbc2wallet.screenshots
 
 import android.app.Application
+import android.os.Looper
+import android.view.View
+import android.view.ViewGroup
+import androidx.compose.ui.platform.ViewRootForTest
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsNode
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
+import org.robolectric.Shadows.shadowOf
+import org.robolectric.shadows.ShadowDialog
+import java.time.Duration
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -18,6 +29,7 @@ import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -170,5 +182,47 @@ class RulesScreenshots {
         compose.onNodeWithText("Payee is “GULF”").performTouchInput { swipeLeft() }
         compose.mainClock.advanceTimeBy(2_000)
         captureScreenRoboImage("$out/learned-forget-dialog.png")
+    }
+
+    @Test fun deleteRuleConfirm() {
+        showRules()
+        // Scrolled past the rules, so the add-rule button doesn't cover this row's trash icon.
+        scrollTo("Learned from your history (3)")
+        // Only the rows on screen are composed, so pick the trash icon level with the rule's text.
+        val row = compose.onNodeWithText("Payee contains “Bolt” · expenses").fetchSemanticsNode().boundsInRoot
+        val icons = compose.onAllNodesWithContentDescription("Delete rule")
+        val index = icons.fetchSemanticsNodes().withIndex().minBy { (_, n) ->
+            kotlin.math.abs(n.boundsInRoot.center.y - row.center.y)
+        }.index
+        // The dialog over the whole app never reports idle, so drive the clock by hand (see editRuleDialog).
+        compose.mainClock.autoAdvance = false
+        icons[index].performClick()
+        compose.mainClock.advanceTimeBy(2_000)
+        captureScreenRoboImage("$out/rule-delete-confirm.png")
+    }
+
+    @Test fun deleteRuleConfirmFromEdit() {
+        showRules()
+        scrollTo("Payee contains “Bolt” · expenses")
+        compose.mainClock.autoAdvance = false
+        compose.onNodeWithText("Payee contains “Bolt” · expenses").performClick()
+        compose.mainClock.advanceTimeBy(2_000)
+        clickInLatestDialog("Delete")
+        compose.mainClock.advanceTimeBy(2_000)
+        captureScreenRoboImage("$out/rule-delete-confirm-from-edit.png")
+    }
+
+    /** Finding nodes once a dialog is open over the app never idles, so click through the dialog's own semantics. */
+    private fun clickInLatestDialog(text: String) {
+        fun rootOf(view: View): ViewRootForTest? = view as? ViewRootForTest
+            ?: (view as? ViewGroup)?.let { g -> (0 until g.childCount).firstNotNullOfOrNull { rootOf(g.getChildAt(it)) } }
+        fun find(node: SemanticsNode): SemanticsNode? =
+            node.takeIf { it.config.getOrNull(SemanticsProperties.Text)?.any { t -> t.text == text } == true && it.config.contains(SemanticsActions.OnClick) }
+                ?: node.children.firstNotNullOfOrNull(::find)
+        // Let the dialog window lay out, or its semantics tree is still empty.
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(500))
+        val root = rootOf(ShadowDialog.getLatestDialog().window!!.decorView)!!
+        val node = find(root.semanticsOwner.rootSemanticsNode) ?: error("No clickable \"$text\" in the dialog")
+        compose.runOnUiThread { node.config[SemanticsActions.OnClick].action!!.invoke() }
     }
 }
