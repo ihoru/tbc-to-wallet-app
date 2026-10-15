@@ -149,6 +149,9 @@ abstract class AppDao {
     @Query("SELECT walletRecordId FROM transactions WHERE isFake = 1 AND walletRecordId IS NOT NULL")
     abstract suspend fun fakeWalletRecordIds(): List<String>
 
+    @Query("SELECT * FROM transactions WHERE dedupKey = :key")
+    abstract suspend fun tx(key: String): TransactionEntity?
+
     @Upsert protected abstract suspend fun upsertRaw(tx: TransactionEntity)
 
     @Query("SELECT status FROM transactions WHERE dedupKey = :key")

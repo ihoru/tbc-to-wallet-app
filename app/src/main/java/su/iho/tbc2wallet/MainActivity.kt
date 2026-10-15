@@ -104,7 +104,12 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import su.iho.tbc2wallet.categorize.CategoryTree
 import su.iho.tbc2wallet.data.AccountEntity
+import su.iho.tbc2wallet.categorize.AppliesTo
 import su.iho.tbc2wallet.categorize.CategoryResolver
+import su.iho.tbc2wallet.categorize.MatchType
+import su.iho.tbc2wallet.categorize.UserRule
+import su.iho.tbc2wallet.categorize.matches
+import su.iho.tbc2wallet.parse.TxKind
 import su.iho.tbc2wallet.categorize.RuleClash
 import su.iho.tbc2wallet.categorize.RuleClashes
 import su.iho.tbc2wallet.data.CategoryEntity
@@ -143,6 +148,7 @@ private enum class Tab(val label: String) { ACTIVITY("Activity"), RULES("Rules")
 internal fun App(vm: MainViewModel) { // internal for the screenshot tests
     var tab by rememberSaveable { mutableStateOf(if (vm.settings.hasToken) Tab.ACTIVITY else Tab.SETTINGS) }
     var ruleDraft by remember { mutableStateOf<UserRuleEntity?>(null) } // non-null = rule dialog open; id 0 = new rule
+    var ruleSource by remember { mutableStateOf<TransactionEntity?>(null) } // the Activity card a new rule is made from
     var simulating by rememberSaveable { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
     val message by vm.message.collectAsState()
@@ -171,7 +177,7 @@ internal fun App(vm: MainViewModel) { // internal for the screenshot tests
             }
         },
         floatingActionButton = {
-            if (tab == Tab.RULES) FloatingActionButton(onClick = { ruleDraft = newRule("") }) { Icon(Icons.Default.Add, "Add rule") }
+            if (tab == Tab.RULES) FloatingActionButton(onClick = { ruleSource = null; ruleDraft = newRule("") }) { Icon(Icons.Default.Add, "Add rule") }
             if (tab == Tab.ACTIVITY) ExtendedFloatingActionButton(
                 onClick = { simulating = true },
                 icon = { Icon(Icons.Default.Add, null) },
@@ -182,15 +188,15 @@ internal fun App(vm: MainViewModel) { // internal for the screenshot tests
         Column(Modifier.padding(padding).fillMaxSize()) {
             if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
             when (tab) {
-                Tab.ACTIVITY -> ActivityScreen(vm, onMakeRule = { ruleDraft = newRule(it) })
-                Tab.RULES -> RulesScreen(vm, onEdit = { ruleDraft = it })
+                Tab.ACTIVITY -> ActivityScreen(vm, onMakeRule = { tx -> ruleSource = tx; ruleDraft = newRule(tx.counterParty.orEmpty()) })
+                Tab.RULES -> RulesScreen(vm, onEdit = { ruleSource = null; ruleDraft = it })
                 Tab.SETTINGS -> SettingsScreen(vm)
             }
         }
     }
 
     ruleDraft?.let { draft ->
-        RuleDialog(vm, initial = draft, onDismiss = { ruleDraft = null })
+        RuleDialog(vm, initial = draft, source = ruleSource, onDismiss = { ruleDraft = null; ruleSource = null })
     }
     if (simulating) FakeNotificationDialog(
         onSubmit = { vm.simulateNotification(it); simulating = false },
@@ -206,7 +212,7 @@ private fun newRule(pattern: String) =
 private val dateFmt = DateTimeFormatter.ofPattern("dd MMM HH:mm")
 
 @Composable
-private fun ActivityScreen(vm: MainViewModel, onMakeRule: (String) -> Unit) {
+private fun ActivityScreen(vm: MainViewModel, onMakeRule: (TransactionEntity) -> Unit) {
     val txs by vm.transactions.collectAsState()
     if (txs.isEmpty()) {
         EmptyState("No TBC transactions yet.\nThey'll appear here as notifications arrive.\nTap Fake to try one by hand.")
@@ -266,7 +272,7 @@ private fun DeleteTransactionDialog(tx: TransactionEntity, onConfirm: () -> Unit
 }
 
 @Composable
-private fun TransactionCard(tx: TransactionEntity, vm: MainViewModel, onMakeRule: (String) -> Unit) {
+private fun TransactionCard(tx: TransactionEntity, vm: MainViewModel, onMakeRule: (TransactionEntity) -> Unit) {
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             if (tx.status == TxStatus.UNPARSED) {
@@ -297,7 +303,7 @@ private fun TransactionCard(tx: TransactionEntity, vm: MainViewModel, onMakeRule
                 if (tx.status == TxStatus.FAILED) TextButton(onClick = { vm.retry(tx) }) { Text("Retry") }
                 if (tx.status in setOf(TxStatus.FAILED, TxStatus.UNPARSED, TxStatus.NEEDS_ACCOUNT, TxStatus.PENDING))
                     TextButton(onClick = { vm.ignore(tx) }) { Text("Ignore") }
-                if (tx.counterParty != null) TextButton(onClick = { onMakeRule(tx.counterParty) }) { Text("Rule…") }
+                if (tx.counterParty != null) TextButton(onClick = { onMakeRule(tx) }) { Text("Rule…") }
             }
         }
     }
@@ -533,7 +539,7 @@ private fun LearnedRow(entry: LearnedEntity, onClick: () -> Unit) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun RuleDialog(vm: MainViewModel, initial: UserRuleEntity, onDismiss: () -> Unit) {
+private fun RuleDialog(vm: MainViewModel, initial: UserRuleEntity, source: TransactionEntity?, onDismiss: () -> Unit) {
     val categories by vm.categories.collectAsState()
     val labels by vm.labels.collectAsState()
     val accounts by vm.accounts.collectAsState()
@@ -610,6 +616,16 @@ private fun RuleDialog(vm: MainViewModel, initial: UserRuleEntity, onDismiss: ()
                     }
                     if (picking) CategoryPickerDialog(categories, onPick = { selected = it; picking = false }, onDismiss = { picking = false })
                 }
+                // Wallet's API can't turn an existing record into a transfer or back, so only category rules update it.
+                val updatesSource = source?.walletRecordId != null && !asTransfer &&
+                    source.categorySource != SyncWorker.TRANSFER_SOURCE && source.kind != null && pattern.isNotBlank() &&
+                    UserRule(pattern, MatchType.valueOf(matchType), AppliesTo.valueOf(appliesTo), "", "")
+                        .matches(TxKind.valueOf(source.kind), source.counterParty.orEmpty())
+                if (updatesSource) Text(
+                    "Saving also updates this transaction's record in Wallet.",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.widthIn(max = OutlinedTextFieldDefaults.MinWidth),
+                )
             }
         },
         confirmButton = {
@@ -627,7 +643,7 @@ private fun RuleDialog(vm: MainViewModel, initial: UserRuleEntity, onDismiss: ()
                         labelIds = chosenLabels.keys.joinToString("\n"),
                         // Prefer Wallet's current name in case a label was renamed since the rule was saved.
                         labelNames = chosenLabels.map { (id, name) -> labels.firstOrNull { it.id == id }?.name ?: name }.joinToString("\n"),
-                    ))
+                    ), fromTx = source)
                     onDismiss()
                 },
             ) { Text("Save") }

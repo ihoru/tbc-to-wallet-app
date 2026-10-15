@@ -15,6 +15,7 @@ import su.iho.tbc2wallet.data.UserRuleEntity
 import su.iho.tbc2wallet.ingest.Ingest
 import su.iho.tbc2wallet.ingest.TbcNotificationListener
 import su.iho.tbc2wallet.sync.Catalog
+import su.iho.tbc2wallet.sync.RecordUpdater
 import su.iho.tbc2wallet.sync.SyncWorker
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -108,10 +109,35 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** Hides [tx] from the app's own list and stops it being sent; a record already in Wallet stays there. */
     fun deleteTransaction(tx: TransactionEntity) = viewModelScope.launch { dao.setStatus(tx.dedupKey, TxStatus.DELETED) }
 
-    /** Inserts [rule] when its id is 0, otherwise replaces the existing rule with that id. */
-    fun saveRule(rule: UserRuleEntity) = viewModelScope.launch {
+    /**
+     * Inserts [rule] when its id is 0, otherwise replaces the existing rule with that id.
+     * [fromTx] is the Activity card the rule was made from: if it's already in Wallet, its record
+     * there gets the rule's category and labels too. One still queued picks the rule up when it's sent.
+     */
+    fun saveRule(rule: UserRuleEntity, fromTx: TransactionEntity? = null) = viewModelScope.launch {
         val clean = rule.copy(pattern = rule.pattern.trim())
         if (clean.id == 0L) dao.insertUserRule(clean) else dao.updateUserRule(clean)
+        fromTx?.let { applyRulesToSent(it.dedupKey) }
+    }
+
+    /** Patches the Wallet record of a transaction already sent so it matches your rules. */
+    private suspend fun applyRulesToSent(dedupKey: String) {
+        if (dao.tx(dedupKey)?.status != TxStatus.SENT) return   // still queued: the rule applies when it's sent
+        val token = settings.apiToken ?: run { _message.value = "Rule saved. Add your Wallet API token to update the record in Wallet."; return }
+        _message.value = try {
+            when (val outcome = RecordUpdater.applyRules(dao, settings, WalletApi(token), dedupKey)) {
+                RecordUpdater.Outcome.NotSent, RecordUpdater.Outcome.Unchanged -> "Rule saved."
+                RecordUpdater.Outcome.NoRuleMatches -> "Rule saved. It doesn't match this transaction, so its record in Wallet stays as it is."
+                RecordUpdater.Outcome.TransferUnsupported ->
+                    "Rule saved. Wallet can't switch an existing record between a transfer and a category, so change this one in Wallet."
+                is RecordUpdater.Outcome.Updated -> "Rule saved, and the record in Wallet now has ${outcome.categoryName}."
+                is RecordUpdater.Outcome.Rejected -> "Rule saved, but Wallet didn't update the record: ${outcome.error}"
+            }
+        } catch (e: WalletApi.ApiException.Unauthorized) {
+            "Rule saved, but Wallet rejected the API token, so the record there wasn't updated."
+        } catch (e: java.io.IOException) {
+            "Rule saved, but the record in Wallet wasn't updated: ${e.message}"
+        }
     }
 
     fun deleteRule(rule: UserRuleEntity) = viewModelScope.launch { dao.deleteUserRule(rule.id) }
