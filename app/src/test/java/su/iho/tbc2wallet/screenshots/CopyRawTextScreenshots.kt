@@ -1,6 +1,7 @@
 package su.iho.tbc2wallet.screenshots
 
 import android.app.Application
+import android.content.ClipDescription
 import android.content.ClipboardManager
 import android.content.Context
 import androidx.compose.material3.MaterialTheme
@@ -16,6 +17,7 @@ import com.github.takahirom.roborazzi.captureScreenRoboImage
 import kotlinx.coroutines.runBlocking
 import kotlin.concurrent.thread
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -74,5 +76,14 @@ class CopyRawTextScreenshots {
         compose.onAllNodesWithContentDescription("Copy notification text")[0].performClick()
         val clip = (app.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).primaryClip!!
         assertEquals(shopsyRaw, clip.getItemAt(0).text.toString())
+        assertTrue(clip.description.extras!!.getBoolean(ClipDescription.EXTRA_IS_SENSITIVE))
+    }
+
+    /** A common narrow phone: the Failed card's buttons wrap instead of being squeezed. */
+    @Config(qualifiers = "w360dp-h800dp-xhdpi")
+    @Test fun narrowPhone() {
+        compose.setContent { MaterialTheme(colorScheme = lightColorScheme()) { App(MainViewModel(app)) } }
+        compose.waitUntilAtLeastOneExists(hasText("Shopsy"), 5_000)
+        captureScreenRoboImage("$out/copy-raw-text-360dp.png")
     }
 }
