@@ -19,6 +19,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.security.MessageDigest
 import java.time.Instant
 import java.time.LocalTime
@@ -74,6 +76,9 @@ object Ingest {
     /** TBC shows Georgian local time regardless of where the phone is. */
     val BANK_ZONE: ZoneId = ZoneId.of("Asia/Tbilisi")
 
+    /** One notification at a time, so a reversal never looks for its charge before that charge is saved. */
+    private val lock = Mutex()
+
     /**
      * [fake] marks text typed in from the Activity tab. It goes through the same parser, rules
      * and upload, but every submission is kept (never deduplicated) and tagged "fake" in Wallet.
@@ -81,7 +86,7 @@ object Ingest {
     suspend fun handle(
         context: Context, text: String, notificationKey: String, whenMillis: Long, postTime: Long,
         fake: Boolean = false,
-    ) {
+    ): Unit = lock.withLock {
         val dao = AppDatabase.get(context).dao()
         val parsed = TbcNotificationParser.parse(text)
 
@@ -112,7 +117,7 @@ object Ingest {
             )
         }
 
-        if (entity.kind == TxKind.REVERSAL.name) return reverse(context, entity)
+        if (entity.kind == TxKind.REVERSAL.name) return@withLock reverse(context, entity)
 
         val inserted = dao.insertIfNew(entity) != -1L
         Log.d("TbcIngest", "status=${entity.status} new=$inserted")
