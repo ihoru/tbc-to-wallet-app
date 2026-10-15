@@ -19,6 +19,9 @@ import su.iho.tbc2wallet.categorize.WalletRule
 import su.iho.tbc2wallet.data.RulesBackup
 import su.iho.tbc2wallet.data.CategoryEntity
 import su.iho.tbc2wallet.data.displayName
+import su.iho.tbc2wallet.data.TransactionEntity
+import su.iho.tbc2wallet.data.TxStatus
+import su.iho.tbc2wallet.ingest.Reversals
 import su.iho.tbc2wallet.parse.TbcNotificationParser
 import su.iho.tbc2wallet.parse.TxKind
 import org.junit.Assert.assertEquals
@@ -78,6 +81,62 @@ class ParserTest {
 
     @Test fun cashbackOnlyIsNotATransaction() {
         assertNull(TbcNotificationParser.parse("You’ve received: 0.05 GEL\nIn Ertguli Piggy bank you have: 25.35 GEL"))
+    }
+
+    @Test fun reversal() {
+        val t = TbcNotificationParser.parse(
+            "Reversal:\n4.00 GEL\nTBC CARD VISA GOLD (***5190)\nFLT*Jetshr\n16/10/26 00:56\nBalance: 4588.05 GEL"
+        )!!
+        assertEquals(TxKind.REVERSAL, t.kind)
+        assertEquals(BigDecimal("4.00"), t.amount)
+        assertEquals("GEL", t.currency)
+        assertEquals("FLT*Jetshr", t.counterParty)
+        assertEquals("5190", t.cardLast4)
+        assertEquals(LocalDate.of(2026, 10, 16), t.date)
+        assertEquals(LocalTime.of(0, 56), t.time)
+        assertEquals(BigDecimal("4588.05"), t.balanceAfter)
+    }
+
+    @Test fun reversalWithMerchantOnTheDateLine() {
+        val t = TbcNotificationParser.parse("Reversal: 4.00 GEL\nTBC CARD VISA GOLD (***5190)\nFLT*Jetshr 16/10/26 00:56")!!
+        assertEquals(TxKind.REVERSAL, t.kind)
+        assertEquals("FLT*Jetshr", t.counterParty)
+        assertEquals(LocalTime.of(0, 56), t.time)
+    }
+}
+
+class ReversalMatchTest {
+    private fun tx(key: String, amount: String, at: String, merchant: String? = "FLT*Jetshr", card: String? = "5190",
+                   kind: String = "EXPENSE", fake: Boolean = false) = TransactionEntity(
+        dedupKey = key, kind = kind, amount = amount, currency = "GEL", counterParty = merchant, accountLabel = null,
+        cardLast4 = card, recordDateUtc = at, rawText = "", status = TxStatus.SENT, receivedAt = 0, isFake = fake,
+    )
+    // The owner's case: 1.90 at 00:48, 4.00 at 00:49 and 3.20 at 00:56, then a 4.00 reversal at 00:56 (Tbilisi = UTC+4).
+    private val reversal = tx("rev", "4.00", "2026-10-15T20:56:00Z", kind = "REVERSAL")
+    private val charges = listOf(
+        tx("a", "1.90", "2026-10-15T20:48:00Z"), tx("b", "4.00", "2026-10-15T20:49:00Z"), tx("c", "3.20", "2026-10-15T20:56:00Z"),
+    )
+
+    @Test fun picksTheChargeWithTheSameAmount() =
+        assertEquals("b", Reversals.findCharge(reversal, charges)?.dedupKey)
+
+    @Test fun latestOfEqualChargesWins() =
+        assertEquals("d", Reversals.findCharge(reversal, charges + tx("d", "4.0", "2026-10-15T20:52:00Z"))?.dedupKey)
+
+    @Test fun otherCardMerchantOrFakenessDoesNotMatch() {
+        assertNull(Reversals.findCharge(reversal, listOf(tx("x", "4.00", "2026-10-15T20:49:00Z", card = "1234"))))
+        assertNull(Reversals.findCharge(reversal, listOf(tx("x", "4.00", "2026-10-15T20:49:00Z", merchant = "Shopsy"))))
+        assertNull(Reversals.findCharge(reversal, listOf(tx("x", "4.00", "2026-10-15T20:49:00Z", fake = true))))
+        assertNull(Reversals.findCharge(reversal, listOf(tx("x", "4.00", "2026-10-15T20:49:00Z", kind = "INCOME"))))
+    }
+
+    @Test fun merchantIsComparedLoosely() =
+        assertEquals("x", Reversals.findCharge(reversal, listOf(tx("x", "4.00", "2026-10-15T20:49:00Z", merchant = "FLT JETSHR")))?.dedupKey)
+
+    @Test fun onlyChargesFromShortlyBefore() {
+        assertNull(Reversals.findCharge(reversal, listOf(tx("old", "4.00", "2026-10-15T18:50:00Z"))))
+        assertNull(Reversals.findCharge(reversal, listOf(tx("later", "4.00", "2026-10-15T21:10:00Z"))))
+        assertEquals("near", Reversals.findCharge(reversal, listOf(tx("near", "4.00", "2026-10-15T19:30:00Z")))?.dedupKey)
     }
 }
 

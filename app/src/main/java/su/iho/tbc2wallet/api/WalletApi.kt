@@ -65,7 +65,8 @@ class WalletApi(private val token: String) {
         /** Null for regular records. */
         val transfer: TransferEmbed? = null,
     )
-    @Serializable data class TransferEmbed(val transferId: String? = null)
+    @Serializable data class TransferEmbed(val transferId: String? = null, val mirrorRecord: MirrorRecord? = null)
+    @Serializable data class MirrorRecord(val id: String? = null)
 
     @Serializable data class Label(val id: String, val name: String = "", val archived: Boolean = false)
 
@@ -96,6 +97,7 @@ class WalletApi(private val token: String) {
         val error: String? = null, val errorType: String? = null,
     )
     @Serializable private data class WriteResponse(val results: List<WriteResult> = emptyList())
+    @Serializable private data class DeleteRequest(val ids: List<String>)
 
     /** Changes to one existing record (`PATCH /v1/api/records`); null fields stay as they are. */
     @Serializable data class RecordPatch(
@@ -167,6 +169,22 @@ class WalletApi(private val token: String) {
         val body = json.encodeToString(patches).toRequestBody(JSON)
         val url = url("records").newBuilder().addQueryParameter("returnData", "false").build()
         val request = Request.Builder().url(url).patch(body).auth().build()
+        return execute(request, acceptedCodes = setOf(200, 207, 400, 500)) {
+            json.decodeFromString<WriteResponse>(it).results
+        }
+    }
+
+    /** The records with these ids that still exist (`GET /v1/api/records?id=…`). */
+    suspend fun recordsById(ids: List<String>): List<Record> {
+        require(ids.size in 1..30)
+        return get<RecordsPage>("records", "id" to ids.joinToString(","), "limit" to "200").records
+    }
+
+    /** Deletes up to 10 records. Both legs of a transfer must be in the same call. */
+    suspend fun deleteRecords(ids: List<String>): List<WriteResult> {
+        require(ids.size in 1..10)
+        val body = json.encodeToString(DeleteRequest(ids)).toRequestBody(JSON)
+        val request = Request.Builder().url(url("records")).delete(body).auth().build()
         return execute(request, acceptedCodes = setOf(200, 207, 400, 500)) {
             json.decodeFromString<WriteResponse>(it).results
         }

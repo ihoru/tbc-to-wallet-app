@@ -77,7 +77,23 @@ TBC CARD
 29/09/2026
 John Smith
 ```
-The parser has not seen foreign-currency purchases, refunds, reversals, ATM withdrawals or
+Reversal (TBC releases a charge, typically a card check minutes after it; the merchant may also share the
+date line):
+```
+Reversal:
+4.00 GEL
+TBC CARD VISA GOLD (***5190)
+FLT*Jetshr
+16/10/26 00:56
+Balance: 4588.05 GEL
+```
+There's no id linking it to the charge, so `ingest/Reversals.kt` picks the latest expense with the same
+amount, currency and card (and merchant, when both have one) from the 2 hours before. The sync worker
+deletes that record from Wallet (`DELETE /v1/api/records`, both legs if it was a transfer; already gone
+counts as done) and marks the charge DELETED. No match → the reversal shows as "No match" and nothing
+is removed. A fake reversal only matches fake charges.
+
+The parser has not seen foreign-currency purchases, refunds, ATM withdrawals or
 outgoing transfers yet. Anything it can't read is stored as UNPARSED and shown for review.
 
 ## Wallet REST API facts (verified from the docs)
@@ -114,6 +130,8 @@ outgoing transfers yet. Anything it can't read is stored as UNPARSED and shown f
   the OpenAPI spec). The app caches them for the rule dialog; if the call fails, rules simply have no labels to pick.
 - `GET /v1/api/accounts` returns `accounts[]` with `id`, `name`, `currencyCode`, `isBankSync`, `archived`.
 - `PATCH /v1/api/records` takes up to 10 items, and `$clear` resets fields.
+- `DELETE /v1/api/records` takes `{"ids": [...]}` (up to 10) and answers with the same batch envelope. Both
+  legs of a transfer must be deleted together; `GET /records?id=X` gives `transfer.mirrorRecord.id`.
 - OpenAPI JSON: `https://rest.budgetbakers.com/wallet/openapi`. Reference: `/wallet/reference`.
 
 ## Design decisions and why
@@ -150,7 +168,7 @@ Robolectric + Roborazzi from seeded sample data; it is skipped in normal test ru
   `GET /records?source=rest&amount=eq.X&recordDate=...` for a match.
 - **No editing.** A category can't be changed from the app after sending. It could offer
   "Change category" through PATCH, and feed that into the learned map.
-- **Unsupported formats.** Georgian-language notifications, refunds, reversals and ATM withdrawals.
+- **Unsupported formats.** Georgian-language notifications, refunds and ATM withdrawals.
   Collect samples from the UNPARSED items.
 - **Fake notifications.** The Activity tab's Fake button runs typed-in text through the same
   ingest path. On each sync that has fake records, the app looks up the active label named "fake"

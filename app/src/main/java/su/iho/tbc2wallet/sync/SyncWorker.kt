@@ -45,8 +45,10 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
             if (catalog.learnedStale()) runCatching { catalog.refreshLearned(api) }
                 .onFailure { Log.w(TAG, "learning skipped", it) }
 
+            // Before sending, so a charge that was cancelled while still queued is never sent.
+            val reversalsLeft = applyReversals(api)
             // Fakes held back by a label-endpoint outage are retried with backoff.
-            if (sendQueued(api, token)) Result.retry() else Result.success()
+            if (sendQueued(api, token) || reversalsLeft) Result.retry() else Result.success()
         } catch (e: WalletApi.ApiException.Unauthorized) {
             note("Wallet rejected the API token. Paste a new one in Settings.")
             Notifier.failed(applicationContext, dao.toSend().size, "Wallet rejected the API token.")
@@ -56,6 +58,42 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         } catch (e: java.io.IOException) {
             note("Network error: ${e.message}"); Result.retry()
         }
+    }
+
+    /**
+     * Removes each charge a reversal cancelled: its Wallet record (both legs, when it went out as a
+     * transfer), then its card in the list. A record already gone from Wallet counts as removed.
+     * Returns true when Wallet failed on its side and the reversal should be tried again.
+     */
+    private suspend fun applyReversals(api: WalletApi): Boolean {
+        var retry = false
+        for (rev in dao.toReverse()) {
+            val charge = rev.reversesKey?.let { dao.tx(it) }
+            val recordId = charge?.walletRecordId
+            if (recordId != null) {
+                val record = api.recordsById(listOf(recordId)).firstOrNull()
+                if (record != null) {
+                    val ids = listOfNotNull(recordId, record.transfer?.mirrorRecord?.id).distinct()
+                    val failure = api.deleteRecords(ids).let { results ->
+                        results.firstOrNull { !it.success } ?: if (results.size < ids.size) WalletApi.WriteResult(0) else null
+                    }
+                    if (failure?.errorType == "client_error") {
+                        val error = "Wallet didn't delete the cancelled charge: ${failure.error.orEmpty()}"
+                        dao.upsertTx(rev.copy(status = TxStatus.FAILED, error = error))
+                        Notifier.failed(applicationContext, 1, error)
+                        continue
+                    }
+                    if (failure != null) {
+                        dao.upsertTx(rev.copy(error = failure.error ?: "No result from Wallet"))
+                        retry = true
+                        continue
+                    }
+                }
+            }
+            charge?.let { dao.setStatus(it.dedupKey, TxStatus.DELETED) }
+            dao.upsertTx(rev.copy(status = TxStatus.REVERSED, error = null))
+        }
+        return retry
     }
 
     /** Returns true when fake records were held back because the label lookup hit a transient error. */
