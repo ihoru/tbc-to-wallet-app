@@ -62,8 +62,8 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
 
     /**
      * Removes each charge a reversal cancelled: its Wallet record (both legs, when it went out as a
-     * transfer), then its card in the list. A record already gone from Wallet counts as removed.
-     * Returns true when Wallet failed on its side and the reversal should be tried again.
+     * transfer), then its card in the list. Returns true when Wallet failed on its side and the
+     * reversal should be tried again.
      */
     private suspend fun applyReversals(api: WalletApi): Boolean {
         var retry = false
@@ -71,19 +71,33 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
             val charge = rev.reversesKey?.let { dao.tx(it) }
             val recordId = charge?.walletRecordId
             if (recordId != null) {
+                val isTransfer = charge.categorySource == TRANSFER_SOURCE
+                // A just-created record may not be readable yet, so not finding it proves nothing on its own.
                 val record = api.recordsById(listOf(recordId)).firstOrNull()
-                if (record != null) {
-                    val ids = listOfNotNull(recordId, record.transfer?.mirrorRecord?.id).distinct()
-                    val failure = api.deleteRecords(ids).let { results ->
-                        results.firstOrNull { !it.success } ?: if (results.size < ids.size) WalletApi.WriteResult(0) else null
-                    }
-                    if (failure?.errorType == "client_error") {
-                        val error = "Wallet didn't delete the cancelled charge: ${failure.error.orEmpty()}"
-                        dao.upsertTx(rev.copy(status = TxStatus.FAILED, error = error))
-                        Notifier.failed(applicationContext, 1, error)
+                if (record == null && isTransfer) {
+                    fail(rev, "Couldn't find the cancelled transfer in Wallet to remove both sides. Check it there, then retry.")
+                    continue
+                }
+                val ids = listOfNotNull(recordId, record?.transfer?.mirrorRecord?.id).distinct()
+                // You may have deleted this reversal while the lookup was out; then its charge stays.
+                if (dao.statusOf(rev.dedupKey) != TxStatus.REVERSING) continue
+                val results = api.deleteRecords(ids)
+                val failure = results.firstOrNull { !it.success } ?: if (results.size < ids.size) WalletApi.WriteResult(0) else null
+                when {
+                    failure == null -> Unit
+                    // One leg of a transfer went and the other didn't: a retry couldn't find the leftover one.
+                    ids.size > 1 && results.any { it.success } -> {
+                        fail(rev, "Wallet removed one side of the cancelled transfer but not the other: " +
+                            "${failure.error ?: "no answer"}. Delete the other side in Wallet.")
                         continue
                     }
-                    if (failure != null) {
+                    // Not listed and not deletable: it's already gone from Wallet.
+                    record == null && failure.errorType == "client_error" -> Unit
+                    failure.errorType == "client_error" -> {
+                        fail(rev, "Wallet didn't delete the cancelled charge: ${failure.error.orEmpty()}")
+                        continue
+                    }
+                    else -> {
                         dao.upsertTx(rev.copy(error = failure.error ?: "No result from Wallet"))
                         retry = true
                         continue
@@ -94,6 +108,11 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
             dao.upsertTx(rev.copy(status = TxStatus.REVERSED, error = null))
         }
         return retry
+    }
+
+    private suspend fun fail(rev: TransactionEntity, error: String) {
+        dao.upsertTx(rev.copy(status = TxStatus.FAILED, error = error))
+        Notifier.failed(applicationContext, 1, error)
     }
 
     /** Returns true when fake records were held back because the label lookup hit a transient error. */

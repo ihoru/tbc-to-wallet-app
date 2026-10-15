@@ -125,6 +125,7 @@ class ReversalMatchTest {
 
     @Test fun otherCardMerchantOrFakenessDoesNotMatch() {
         assertNull(Reversals.findCharge(reversal, listOf(tx("x", "4.00", "2026-10-15T20:49:00Z", card = "1234"))))
+        assertNull(Reversals.findCharge(reversal.copy(cardLast4 = null), listOf(tx("x", "4.00", "2026-10-15T20:49:00Z"))))
         assertNull(Reversals.findCharge(reversal, listOf(tx("x", "4.00", "2026-10-15T20:49:00Z", merchant = "Shopsy"))))
         assertNull(Reversals.findCharge(reversal, listOf(tx("x", "4.00", "2026-10-15T20:49:00Z", fake = true))))
         assertNull(Reversals.findCharge(reversal, listOf(tx("x", "4.00", "2026-10-15T20:49:00Z", kind = "INCOME"))))

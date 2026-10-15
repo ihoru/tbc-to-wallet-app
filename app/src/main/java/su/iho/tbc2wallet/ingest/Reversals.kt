@@ -18,11 +18,13 @@ object Reversals {
     fun findCharge(reversal: TransactionEntity, candidates: List<TransactionEntity>): TransactionEntity? {
         val at = reversal.recordDateUtc?.let(Instant::parse) ?: return null
         val amount = reversal.amount?.toBigDecimalOrNull() ?: return null
+        // Removing a charge can't be undone, so a reversal that doesn't name its card matches nothing.
+        if (reversal.cardLast4 == null) return null
         return candidates
             .filter { c ->
                 c.kind == "EXPENSE" && c.currency == reversal.currency && c.isFake == reversal.isFake &&
                     c.amount?.toBigDecimalOrNull()?.compareTo(amount) == 0 &&
-                    (reversal.cardLast4 == null || c.cardLast4 == reversal.cardLast4) &&
+                    c.cardLast4 == reversal.cardLast4 &&
                     sameMerchant(reversal.counterParty, c.counterParty) &&
                     c.recordDateUtc?.let(Instant::parse)?.let { it >= at - WINDOW && it <= at + SLACK } == true
             }
