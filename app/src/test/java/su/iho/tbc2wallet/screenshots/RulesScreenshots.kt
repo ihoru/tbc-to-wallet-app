@@ -18,6 +18,7 @@ import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -170,5 +171,26 @@ class RulesScreenshots {
         compose.onNodeWithText("Payee is “GULF”").performTouchInput { swipeLeft() }
         compose.mainClock.advanceTimeBy(2_000)
         captureScreenRoboImage("$out/learned-forget-dialog.png")
+    }
+
+    @Test fun deleteRuleConfirm() {
+        showRules()
+        scrollTo("Payee contains “Bolt” · expenses")
+        // The dialog over the whole app never reports idle, so drive the clock by hand (see editRuleDialog).
+        compose.mainClock.autoAdvance = false
+        compose.onAllNodesWithContentDescription("Delete rule")[2].performClick()
+        compose.mainClock.advanceTimeBy(2_000)
+        captureScreenRoboImage("$out/rule-delete-confirm.png")
+    }
+
+    @Test fun deleteRuleConfirmFromEdit() {
+        showRules()
+        scrollTo("Payee contains “Bolt” · expenses")
+        compose.mainClock.autoAdvance = false
+        compose.onNodeWithText("Payee contains “Bolt” · expenses").performClick()
+        compose.mainClock.advanceTimeBy(2_000)
+        compose.onNodeWithText("Delete").performClick()
+        compose.mainClock.advanceTimeBy(2_000)
+        captureScreenRoboImage("$out/rule-delete-confirm-from-edit.png")
     }
 }
