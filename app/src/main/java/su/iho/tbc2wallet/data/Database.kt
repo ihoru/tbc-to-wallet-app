@@ -28,7 +28,11 @@ enum class TxStatus {
     FAILED,         // Wallet rejected it (bad input); needs a look
     UNPARSED,       // TBC notification in a format the parser doesn't know
     IGNORED,        // dismissed by you
-    DELETED,        // swiped off the list by you; the row stays so a re-posted notification isn't sent again
+    DELETED,        // swiped off the list by you, or cancelled by a reversal; the row stays so a re-posted notification isn't sent again
+    // Reversal notifications only:
+    REVERSING,      // matched to a charge; that charge is being removed from Wallet
+    REVERSED,       // the charge it cancels is gone from Wallet and from the list
+    NO_MATCH,       // no recent charge with the same amount and card; left for you to handle
 }
 
 @Entity(tableName = "transactions")
@@ -50,6 +54,7 @@ data class TransactionEntity(
     val error: String? = null,
     val receivedAt: Long,
     @ColumnInfo(defaultValue = "0") val isFake: Boolean = false,    // typed in by hand from the Activity tab to test parsing and rules
+    val reversesKey: String? = null,    // a reversal's link to the charge it cancels
 )
 
 @Entity(tableName = "user_rules")
@@ -149,6 +154,19 @@ abstract class AppDao {
     @Query("SELECT walletRecordId FROM transactions WHERE isFake = 1 AND walletRecordId IS NOT NULL")
     abstract suspend fun fakeWalletRecordIds(): List<String>
 
+    @Query("SELECT * FROM transactions WHERE status = 'REVERSING' ORDER BY receivedAt")
+    abstract suspend fun toReverse(): List<TransactionEntity>
+
+    /** Charges a reversal could cancel: not yet cancelled, deleted or ignored. */
+    @Query("""SELECT * FROM transactions WHERE kind = 'EXPENSE' AND currency = :currency AND isFake = :fake
+        AND status IN ('PENDING','NEEDS_ACCOUNT','FAILED','SENT')
+        AND dedupKey NOT IN (SELECT reversesKey FROM transactions WHERE reversesKey IS NOT NULL)""")
+    abstract suspend fun reversalCandidates(currency: String, fake: Boolean): List<TransactionEntity>
+
+    /** The charges reversals cancelled, so a reversal's card can say which one. */
+    @Query("SELECT * FROM transactions WHERE dedupKey IN (SELECT reversesKey FROM transactions WHERE reversesKey IS NOT NULL)")
+    abstract fun observeReversedCharges(): Flow<List<TransactionEntity>>
+
     @Query("SELECT * FROM transactions WHERE dedupKey = :key")
     abstract suspend fun tx(key: String): TransactionEntity?
 
@@ -212,7 +230,7 @@ data class SentAssignment(val dedupKey: String, val walletRecordId: String?, val
         TransactionEntity::class, UserRuleEntity::class, WalletRuleEntity::class,
         LearnedEntity::class, CategoryEntity::class, AccountEntity::class, LabelEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -223,7 +241,7 @@ abstract class AppDatabase : RoomDatabase() {
         fun get(context: Context): AppDatabase = instance ?: synchronized(this) {
             instance ?: RulesBackup(context).let { backup ->
                 Room.databaseBuilder(context.applicationContext, AppDatabase::class.java, "tbc2wallet.db")
-                    .addMigrations(*(1..4).map(::catchUp).toTypedArray())
+                    .addMigrations(*(1..5).map(::catchUp).toTypedArray())
                     .addCallback(backup.callback)
                     .build().also { backup.watch(it); instance = it }
             }
@@ -234,9 +252,10 @@ abstract class AppDatabase : RoomDatabase() {
          * transfer rules), so a phone may be on any mix of them. Every old version jumps straight
          * to the current one and adds only what's missing.
          */
-        private fun catchUp(from: Int) = object : Migration(from, 5) {
+        private fun catchUp(from: Int) = object : Migration(from, 6) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.addColumnIfMissing("transactions", "isFake", "INTEGER NOT NULL DEFAULT 0")
+                db.addColumnIfMissing("transactions", "reversesKey", "TEXT")
                 db.addColumnIfMissing("user_rules", "labelIds", "TEXT NOT NULL DEFAULT ''")
                 db.addColumnIfMissing("user_rules", "labelNames", "TEXT NOT NULL DEFAULT ''")
                 db.addColumnIfMissing("user_rules", "transferAccountId", "TEXT")

@@ -116,6 +116,7 @@ import su.iho.tbc2wallet.categorize.MatchType
 import su.iho.tbc2wallet.categorize.UserRule
 import su.iho.tbc2wallet.categorize.matches
 import su.iho.tbc2wallet.parse.TxKind
+import su.iho.tbc2wallet.ingest.Reversals
 import su.iho.tbc2wallet.categorize.RuleClash
 import su.iho.tbc2wallet.categorize.RuleClashes
 import su.iho.tbc2wallet.data.CategoryEntity
@@ -264,6 +265,11 @@ private fun SwipeToDelete(onSwiped: () -> Unit, content: @Composable () -> Unit)
 private fun DeleteTransactionDialog(tx: TransactionEntity, onConfirm: () -> Unit, onDismiss: () -> Unit) {
     val what = tx.counterParty ?: if (tx.status == TxStatus.UNPARSED) "this unreadable notification" else "this transaction"
     val consequence = when {
+        tx.kind == TxKind.REVERSAL.name -> when (tx.status) {
+            TxStatus.REVERSED -> "The charge it cancelled stays removed."
+            TxStatus.NO_MATCH, TxStatus.IGNORED -> "Nothing changes in Wallet."
+            else -> "The charge it cancels stays where it is, in Wallet too."
+        }
         tx.walletRecordId != null -> "The record already in Wallet stays there; delete it in Wallet if you want it gone too."
         tx.status in setOf(TxStatus.PENDING, TxStatus.NEEDS_ACCOUNT, TxStatus.FAILED) -> "It hasn't reached Wallet yet, and the app stops trying to send it."
         else -> "Nothing changes in Wallet."
@@ -285,6 +291,8 @@ private fun TransactionCard(tx: TransactionEntity, vm: MainViewModel, onMakeRule
             if (tx.status == TxStatus.UNPARSED) {
                 Text("Couldn't read this notification", style = MaterialTheme.typography.titleSmall)
                 Text(tx.rawText, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
+            } else if (tx.kind == TxKind.REVERSAL.name) {
+                ReversalDetails(tx, vm.reversedCharges.collectAsState().value[tx.reversesKey])
             } else {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
@@ -310,9 +318,9 @@ private fun TransactionCard(tx: TransactionEntity, vm: MainViewModel, onMakeRule
                 // Wraps on narrow phones, where Retry, Ignore and Rule… don't all fit beside the chip.
                 FlowRow(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
                     if (tx.status == TxStatus.FAILED) TextButton(onClick = { vm.retry(tx) }) { Text("Retry") }
-                    if (tx.status in setOf(TxStatus.FAILED, TxStatus.UNPARSED, TxStatus.NEEDS_ACCOUNT, TxStatus.PENDING))
+                    if (tx.status in setOf(TxStatus.FAILED, TxStatus.UNPARSED, TxStatus.NEEDS_ACCOUNT, TxStatus.PENDING, TxStatus.NO_MATCH))
                         TextButton(onClick = { vm.ignore(tx) }) { Text("Ignore") }
-                    if (tx.counterParty != null) TextButton(onClick = { onMakeRule(tx) }) { Text("Rule…") }
+                    if (tx.counterParty != null && tx.kind != TxKind.REVERSAL.name) TextButton(onClick = { onMakeRule(tx) }) { Text("Rule…") }
                 }
             }
         }
@@ -337,6 +345,34 @@ private fun CopyRawTextButton(rawText: String) {
     }
 }
 
+/** A reversal names the charge it cancelled; that charge itself has left the list. */
+@Composable
+private fun ReversalDetails(tx: TransactionEntity, charge: TransactionEntity?) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            tx.counterParty ?: "Card payment", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f),
+            maxLines = 1, overflow = TextOverflow.Ellipsis,
+        )
+        Text("↩ ${tx.amount} ${tx.currency}", style = MaterialTheme.typography.titleMedium)
+    }
+    Text("Reversal · ${localDate(tx.recordDateUtc)} · ${tx.accountLabel.orEmpty()}", style = MaterialTheme.typography.bodySmall)
+    val which = charge?.let { "the ${localDate(it.recordDateUtc)} charge" } ?: "its charge"
+    val inWallet = charge?.walletRecordId != null
+    Text(
+        when (tx.status) {
+            TxStatus.REVERSING -> "Cancels $which" + if (inWallet) " · removing it from Wallet" else ""
+            TxStatus.REVERSED -> "Cancelled $which" + if (inWallet) " · removed from Wallet and this list" else " · it never reached Wallet"
+            TxStatus.FAILED -> "Cancels $which, which is still in Wallet"
+            else -> "No ${tx.amount} ${tx.currency} charge on this card in the ${Reversals.WINDOW.toHours()} hours before, " +
+                "so nothing was removed. If the cancelled charge is in the list, swipe it away."
+        },
+        style = MaterialTheme.typography.bodySmall,
+    )
+}
+
+private fun localDate(utc: String?): String =
+    utc?.let { Instant.parse(it).atZone(ZoneId.systemDefault()).format(dateFmt) }.orEmpty()
+
 private fun categoryLine(tx: TransactionEntity): String = when (tx.categorySource) {
     null -> "Category: decided when sent"
     "NONE" -> "Category: none (Wallet files it as Unknown)"
@@ -356,6 +392,9 @@ private fun statusLabel(s: TxStatus) = when (s) {
     TxStatus.UNPARSED -> "Unreadable"
     TxStatus.IGNORED -> "Ignored"
     TxStatus.DELETED -> "Deleted"
+    TxStatus.REVERSING -> "Cancelling"
+    TxStatus.REVERSED -> "Charge cancelled"
+    TxStatus.NO_MATCH -> "No match"
 }
 
 /** A purchase dated now in Tbilisi time, so the simulated record lands in today's Wallet activity. */

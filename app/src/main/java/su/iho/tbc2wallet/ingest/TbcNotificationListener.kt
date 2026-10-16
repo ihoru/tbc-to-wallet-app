@@ -19,6 +19,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.security.MessageDigest
 import java.time.Instant
 import java.time.LocalTime
@@ -74,6 +76,9 @@ object Ingest {
     /** TBC shows Georgian local time regardless of where the phone is. */
     val BANK_ZONE: ZoneId = ZoneId.of("Asia/Tbilisi")
 
+    /** One notification at a time, so a reversal never looks for its charge before that charge is saved. */
+    private val lock = Mutex()
+
     /**
      * [fake] marks text typed in from the Activity tab. It goes through the same parser, rules
      * and upload, but every submission is kept (never deduplicated) and tagged "fake" in Wallet.
@@ -81,7 +86,7 @@ object Ingest {
     suspend fun handle(
         context: Context, text: String, notificationKey: String, whenMillis: Long, postTime: Long,
         fake: Boolean = false,
-    ) {
+    ): Unit = lock.withLock {
         val dao = AppDatabase.get(context).dao()
         val parsed = TbcNotificationParser.parse(text)
 
@@ -112,6 +117,8 @@ object Ingest {
             )
         }
 
+        if (entity.kind == TxKind.REVERSAL.name) return@withLock reverse(context, entity)
+
         val inserted = dao.insertIfNew(entity) != -1L
         Log.d("TbcIngest", "status=${entity.status} new=$inserted")
         if (inserted && entity.status == TxStatus.PENDING) SyncWorker.enqueue(context)
@@ -119,14 +126,30 @@ object Ingest {
     }
 
     /**
-     * Purchases include time and balance-after, so identical content means the same
-     * purchase even if Android re-posts the notification. Deposits only carry a date,
+     * Links a reversal to the charge it cancels; the worker then removes that charge from Wallet and the list.
+     * A re-posted reversal is ignored like a re-posted purchase.
+     */
+    private suspend fun reverse(context: Context, reversal: TransactionEntity) {
+        val dao = AppDatabase.get(context).dao()
+        if (dao.tx(reversal.dedupKey) != null) return
+        val charge = Reversals.findCharge(reversal, dao.reversalCandidates(reversal.currency!!, reversal.isFake))
+        val entity = if (charge == null) reversal.copy(status = TxStatus.NO_MATCH)
+            else reversal.copy(status = TxStatus.REVERSING, reversesKey = charge.dedupKey)
+        val inserted = dao.insertIfNew(entity) != -1L
+        Log.d("TbcIngest", "reversal status=${entity.status} new=$inserted")
+        if (inserted && charge != null) SyncWorker.enqueue(context)
+        if (inserted && charge == null && !reversal.isFake) Notifier.reversalUnmatched(context)
+    }
+
+    /**
+     * Purchases and reversals include time and balance-after, so identical content means the same
+     * one even if Android re-posts the notification. Deposits only carry a date,
      * so the notification identity is added to keep two equal deposits apart.
      */
     private fun dedupKey(p: ParsedTransaction, notificationKey: String, whenMillis: Long): String {
         val base = listOf(p.kind, p.amount.toPlainString(), p.currency, p.counterParty, p.cardLast4, p.date, p.time, p.balanceAfter)
             .joinToString("|")
-        return sha(if (p.kind == TxKind.EXPENSE) base else "$base|$notificationKey|$whenMillis")
+        return sha(if (p.kind != TxKind.INCOME) base else "$base|$notificationKey|$whenMillis")
     }
 
     private fun recordInstant(p: ParsedTransaction, postTime: Long): Instant {
