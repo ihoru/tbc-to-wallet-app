@@ -28,6 +28,9 @@ object Notifier {
     fun failed(context: Context, count: Int, reason: String) =
         show(context, 3, "$count transaction(s) not saved to Wallet", reason)
 
+    fun reversalUnmatched(context: Context) =
+        show(context, 4, "TBC cancelled a charge", "No recent matching charge was found, so nothing was removed. Open the app to check.")
+
     @SuppressLint("MissingPermission") // checked just below
     private fun show(context: Context, id: Int, title: String, text: String) {
         if (Build.VERSION.SDK_INT >= 33 &&

@@ -14,6 +14,7 @@ import su.iho.tbc2wallet.data.TxStatus
 import su.iho.tbc2wallet.data.UserRuleEntity
 import su.iho.tbc2wallet.ingest.Ingest
 import su.iho.tbc2wallet.ingest.TbcNotificationListener
+import su.iho.tbc2wallet.parse.TxKind
 import su.iho.tbc2wallet.sync.Catalog
 import su.iho.tbc2wallet.sync.RecordUpdater
 import su.iho.tbc2wallet.sync.SyncWorker
@@ -21,6 +22,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -35,6 +37,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val accounts = dao.observeAccounts().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val walletRuleCount = dao.observeWalletRuleCount().stateIn(viewModelScope, SharingStarted.Eagerly, 0)
     val learned = dao.observeLearned().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    /** Charges cancelled by reversals, by key; they're off the list, but their reversal names them. */
+    val reversedCharges = dao.observeReversedCharges().map { list -> list.associateBy { it.dedupKey } }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
 
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message.asStateFlow()
@@ -95,7 +100,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun syncNow() = SyncWorker.enqueue(getApplication())
 
     fun retry(tx: TransactionEntity) = viewModelScope.launch {
-        dao.setStatus(tx.dedupKey, TxStatus.PENDING); SyncWorker.enqueue(getApplication())
+        dao.setStatus(tx.dedupKey, if (tx.kind == TxKind.REVERSAL.name) TxStatus.REVERSING else TxStatus.PENDING)
+        SyncWorker.enqueue(getApplication())
     }
 
     /** Runs typed-in text through the same path as a real TBC notification, marked as fake. */
