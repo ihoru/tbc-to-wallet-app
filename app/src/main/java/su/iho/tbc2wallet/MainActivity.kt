@@ -1,11 +1,16 @@
 package su.iho.tbc2wallet
 
 import android.Manifest
+import android.content.ClipData
+import android.content.ClipDescription
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.os.PersistableBundle
+import android.widget.Toast
 import android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -23,7 +28,6 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -36,6 +40,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.List
@@ -93,6 +98,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -277,6 +283,7 @@ private fun DeleteTransactionDialog(tx: TransactionEntity, onConfirm: () -> Unit
     )
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun TransactionCard(tx: TransactionEntity, vm: MainViewModel, onMakeRule: (TransactionEntity) -> Unit) {
     Card(Modifier.fillMaxWidth()) {
@@ -307,13 +314,34 @@ private fun TransactionCard(tx: TransactionEntity, vm: MainViewModel, onMakeRule
             tx.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 AssistChip(onClick = {}, label = { Text(statusLabel(tx.status)) })
-                Spacer(Modifier.weight(1f))
-                if (tx.status == TxStatus.FAILED) TextButton(onClick = { vm.retry(tx) }) { Text("Retry") }
-                if (tx.status in setOf(TxStatus.FAILED, TxStatus.UNPARSED, TxStatus.NEEDS_ACCOUNT, TxStatus.PENDING, TxStatus.NO_MATCH))
-                    TextButton(onClick = { vm.ignore(tx) }) { Text("Ignore") }
-                if (tx.counterParty != null && tx.kind != TxKind.REVERSAL.name) TextButton(onClick = { onMakeRule(tx) }) { Text("Rule…") }
+                if (tx.rawText.isNotBlank()) CopyRawTextButton(tx.rawText)
+                // Wraps on narrow phones, where Retry, Ignore and Rule… don't all fit beside the chip.
+                FlowRow(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
+                    if (tx.status == TxStatus.FAILED) TextButton(onClick = { vm.retry(tx) }) { Text("Retry") }
+                    if (tx.status in setOf(TxStatus.FAILED, TxStatus.UNPARSED, TxStatus.NEEDS_ACCOUNT, TxStatus.PENDING, TxStatus.NO_MATCH))
+                        TextButton(onClick = { vm.ignore(tx) }) { Text("Ignore") }
+                    if (tx.counterParty != null && tx.kind != TxKind.REVERSAL.name) TextButton(onClick = { onMakeRule(tx) }) { Text("Rule…") }
+                }
             }
         }
+    }
+}
+
+/** Copies the bank notification exactly as it arrived, e.g. to report a parsing problem. */
+@Composable
+private fun CopyRawTextButton(rawText: String) {
+    val context = LocalContext.current
+    IconButton(onClick = {
+        // Flagged sensitive so Android 13+ doesn't preview the balance and card in its copy confirmation.
+        val clip = ClipData.newPlainText("TBC notification", rawText).apply {
+            description.extras = PersistableBundle().apply { putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true) }
+        }
+        context.getSystemService(ClipboardManager::class.java).setPrimaryClip(clip)
+        // Android 13+ shows its own confirmation when something is copied.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU)
+            Toast.makeText(context, "Notification text copied", Toast.LENGTH_SHORT).show()
+    }) {
+        Icon(Icons.Default.ContentCopy, contentDescription = "Copy notification text", modifier = Modifier.size(20.dp))
     }
 }
 
