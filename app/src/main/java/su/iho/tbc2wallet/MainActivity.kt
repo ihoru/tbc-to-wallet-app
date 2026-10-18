@@ -110,11 +110,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import su.iho.tbc2wallet.categorize.CategoryTree
 import su.iho.tbc2wallet.data.AccountEntity
-import su.iho.tbc2wallet.categorize.AppliesTo
 import su.iho.tbc2wallet.categorize.CategoryResolver
-import su.iho.tbc2wallet.categorize.MatchType
-import su.iho.tbc2wallet.categorize.UserRule
-import su.iho.tbc2wallet.categorize.matches
 import su.iho.tbc2wallet.parse.TxKind
 import su.iho.tbc2wallet.ingest.Reversals
 import su.iho.tbc2wallet.categorize.RuleClash
@@ -204,6 +200,14 @@ internal fun App(vm: MainViewModel) { // internal for the screenshot tests
 
     ruleDraft?.let { draft ->
         RuleDialog(vm, initial = draft, source = ruleSource, onDismiss = { ruleDraft = null; ruleSource = null })
+    }
+    val backfill by vm.backfill.collectAsState()
+    backfill?.let { b ->
+        BackfillDialog(
+            b, vm.categories.collectAsState().value,
+            onToggle = vm::toggleBackfill, onCheckAll = vm::checkAllBackfill,
+            onApply = { vm.applyBackfill() }, onDismiss = vm::closeBackfill,
+        )
     }
     if (simulating) FakeNotificationDialog(
         onSubmit = { vm.simulateNotification(it); simulating = false },
@@ -701,16 +705,16 @@ private fun RuleDialog(vm: MainViewModel, initial: UserRuleEntity, source: Trans
                     }
                     if (picking) CategoryPickerDialog(categories, onPick = { selected = it; picking = false }, onDismiss = { picking = false })
                 }
-                // Wallet's API can't turn an existing record into a transfer or back, so only category rules update it.
-                val updatesSource = source?.walletRecordId != null && !asTransfer &&
-                    source.categorySource != SyncWorker.TRANSFER_SOURCE && source.kind != null && pattern.isNotBlank() &&
-                    UserRule(pattern, MatchType.valueOf(matchType), AppliesTo.valueOf(appliesTo), "", "")
-                        .matches(TxKind.valueOf(source.kind), source.counterParty.orEmpty())
-                if (updatesSource) Text(
-                    "Saving also updates this transaction's record in Wallet.",
+                if (source?.walletRecordId != null && !asTransfer) Text(
+                    "After saving, you can pick which records in Wallet to update, this one included.",
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.widthIn(max = OutlinedTextFieldDefaults.MinWidth),
                 )
+                // Wallet's API can't turn an existing record into a transfer, so only category rules update older ones.
+                if (editing && initial.transferAccountId == null) TextButton(
+                    onClick = { vm.findOlderRecords(initial.id); onDismiss() },
+                    contentPadding = PaddingValues(0.dp),
+                ) { Text("Apply to older records…") }
             }
         },
         confirmButton = {

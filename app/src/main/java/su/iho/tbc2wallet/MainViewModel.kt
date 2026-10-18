@@ -12,11 +12,13 @@ import su.iho.tbc2wallet.data.Settings
 import su.iho.tbc2wallet.data.TransactionEntity
 import su.iho.tbc2wallet.data.TxStatus
 import su.iho.tbc2wallet.data.UserRuleEntity
+import su.iho.tbc2wallet.data.toUserRule
+import su.iho.tbc2wallet.categorize.UserRule
 import su.iho.tbc2wallet.ingest.Ingest
 import su.iho.tbc2wallet.ingest.TbcNotificationListener
 import su.iho.tbc2wallet.parse.TxKind
 import su.iho.tbc2wallet.sync.Catalog
-import su.iho.tbc2wallet.sync.RecordUpdater
+import su.iho.tbc2wallet.sync.RuleBackfill
 import su.iho.tbc2wallet.sync.SyncWorker
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -24,6 +26,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 class MainViewModel(app: Application) : AndroidViewModel(app) {
@@ -115,35 +118,104 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** Hides [tx] from the app's own list and stops it being sent; a record already in Wallet stays there. */
     fun deleteTransaction(tx: TransactionEntity) = viewModelScope.launch { dao.setStatus(tx.dedupKey, TxStatus.DELETED) }
 
+    /** Older Wallet records a rule would change, listed for you to tick; null = the list is closed. */
+    data class Backfill(
+        val rule: UserRule,
+        val items: List<RuleBackfill.Item>,
+        val checked: Set<String>,
+        val applying: Boolean = false,
+    )
+
+    private val _backfill = MutableStateFlow<Backfill?>(null)
+    val backfill: StateFlow<Backfill?> = _backfill.asStateFlow()
+
     /**
-     * Inserts [rule] when its id is 0, otherwise replaces the existing rule with that id.
-     * [fromTx] is the Activity card the rule was made from: if it's already in Wallet, its record
-     * there gets the rule's category and labels too. One still queued picks the rule up when it's sent.
+     * Inserts [rule] when its id is 0, otherwise replaces the existing rule with that id. A new rule, or
+     * one whose payee text, type or category changed, then lists the older records in Wallet it would
+     * change. [fromTx] is the Activity card the rule was made from; its record is in that list too.
      */
     fun saveRule(rule: UserRuleEntity, fromTx: TransactionEntity? = null) = viewModelScope.launch {
         val clean = rule.copy(pattern = rule.pattern.trim())
-        if (clean.id == 0L) dao.insertUserRule(clean) else dao.updateUserRule(clean)
-        fromTx?.let { applyRulesToSent(it.dedupKey) }
+        val before = dao.userRules().firstOrNull { it.id == clean.id }
+        val id = if (clean.id == 0L) dao.insertUserRule(clean) else clean.id.also { dao.updateUserRule(clean) }
+        if (clean.transferAccountId != null) {
+            if (fromTx?.status == TxStatus.SENT) _message.value =
+                "Rule saved. Wallet can't turn an existing record into a transfer, so change this one in Wallet."
+            return@launch
+        }
+        val changed = before == null || before.pattern != clean.pattern || before.matchType != clean.matchType ||
+            before.appliesTo != clean.appliesTo || before.categoryId != clean.categoryId || before.transferAccountId != null
+        if (changed || fromTx != null) findOlderRecords(id, afterSave = true)
     }
 
-    /** Patches the Wallet record of a transaction already sent so it matches your rules. */
-    private suspend fun applyRulesToSent(dedupKey: String) {
-        if (dao.tx(dedupKey)?.status != TxStatus.SENT) return   // still queued: the rule applies when it's sent
-        val token = settings.apiToken ?: run { _message.value = "Rule saved. Add your Wallet API token to update the record in Wallet."; return }
-        _message.value = try {
-            when (val outcome = RecordUpdater.applyRules(dao, settings, WalletApi(token), dedupKey)) {
-                RecordUpdater.Outcome.NotSent, RecordUpdater.Outcome.Unchanged -> "Rule saved."
-                RecordUpdater.Outcome.NoRuleMatches -> "Rule saved. It doesn't match this transaction, so its record in Wallet stays as it is."
-                RecordUpdater.Outcome.TransferUnsupported ->
-                    "Rule saved. Wallet can't switch an existing record between a transfer and a category, so change this one in Wallet."
-                is RecordUpdater.Outcome.Updated -> "Rule saved, and the record in Wallet now has ${outcome.categoryName}."
-                is RecordUpdater.Outcome.Rejected -> "Rule saved, but Wallet didn't update the record: ${outcome.error}"
-            }
-        } catch (e: WalletApi.ApiException.Unauthorized) {
-            "Rule saved, but Wallet rejected the API token, so the record there wasn't updated."
-        } catch (e: java.io.IOException) {
-            "Rule saved, but the record in Wallet wasn't updated: ${e.message}"
+    /** Looks up the records in Wallet that the rule with [ruleId] would change, and opens the list. */
+    fun findOlderRecords(ruleId: Long, afterSave: Boolean = false) = viewModelScope.launch {
+        val saved = if (afterSave) "Rule saved. " else ""
+        val all = dao.userRules()
+        val index = all.indexOfFirst { it.id == ruleId }.takeIf { it >= 0 } ?: return@launch
+        val rule = all[index].toUserRule()
+        if (rule.transferAccountId != null) {
+            _message.value = "Wallet can't turn existing records into transfers, so this rule only applies to new ones."
+            return@launch
         }
+        val token = settings.apiToken ?: run { _message.value = "${saved}Add your Wallet API token to update older records."; return@launch }
+        val currencies = settings.seenCurrencies + accounts.value.map { it.currency }
+        val accountIds = currencies.mapNotNull { settings.accountFor(it) }.distinct()
+        if (accountIds.isEmpty()) { _message.value = "${saved}Pick a Wallet account in Settings to update older records."; return@launch }
+        _busy.value = true
+        try {
+            val items = RuleBackfill.find(WalletApi(token), all.map { it.toUserRule() }, index, accountIds)
+            if (items.isEmpty()) _message.value = "${saved}No older records in Wallet need changing."
+            else _backfill.value = Backfill(rule, items, items.map { it.recordId }.toSet())
+        } catch (e: Exception) {
+            _message.value = "${saved}Couldn't look up older records: ${walletError(e)}"
+        } finally {
+            _busy.value = false
+        }
+    }
+
+    fun toggleBackfill(recordId: String) = _backfill.update { b ->
+        b?.copy(checked = if (recordId in b.checked) b.checked - recordId else b.checked + recordId)
+    }
+
+    fun checkAllBackfill(checked: Boolean) = _backfill.update { b ->
+        b?.copy(checked = if (checked) b.items.map { it.recordId }.toSet() else emptySet())
+    }
+
+    fun closeBackfill() { _backfill.value = null }
+
+    /** Moves the ticked records to the rule's category. Updated ones leave the list; failed ones stay with Wallet's reason. */
+    fun applyBackfill() = viewModelScope.launch {
+        val b = _backfill.value ?: return@launch
+        val token = settings.apiToken ?: return@launch
+        val ids = b.items.map { it.recordId }.filter { it in b.checked }
+        if (ids.isEmpty() || b.applying) return@launch
+        _backfill.value = b.copy(applying = true)
+        val result = try {
+            RuleBackfill.apply(WalletApi(token), b.rule, ids)
+        } catch (e: Exception) {
+            _backfill.value = b
+            _message.value = "Wallet didn't update the records: ${walletError(e)}"
+            return@launch
+        }
+        if (result.updatedIds.isNotEmpty()) dao.setRuleCategory(result.updatedIds, b.rule.categoryId, b.rule.categoryName)
+        val done = result.updatedIds.toSet()
+        val left = b.items.filterNot { it.recordId in done }
+            .map { if (it.recordId in ids) it.copy(error = result.errors[it.recordId]) else it }
+        _backfill.value = if (left.isEmpty()) null else b.copy(items = left, checked = b.checked - done, applying = false)
+        _message.value = when {
+            result.retryAfterSeconds != null ->
+                "Updated ${done.size} of ${ids.size}. Wallet's hourly limit is reached; try the rest in ${(result.retryAfterSeconds + 59) / 60} min."
+            result.errors.isNotEmpty() -> "Updated ${done.size} of ${ids.size}. Wallet turned down the rest."
+            else -> "Updated ${done.size} ${if (done.size == 1) "record" else "records"} in Wallet."
+        }
+    }
+
+    private fun walletError(e: Exception): String = when (e) {
+        is WalletApi.ApiException.Unauthorized -> "Wallet rejected the API token."
+        is WalletApi.ApiException.RateLimited -> "Wallet's hourly limit is reached; try again in ${(e.retryAfterSeconds + 59) / 60} min."
+        is WalletApi.ApiException.InitialSync -> "Wallet is still preparing API access. Try again in a few minutes."
+        else -> e.message ?: e.javaClass.simpleName
     }
 
     fun deleteRule(rule: UserRuleEntity) = viewModelScope.launch { dao.deleteUserRule(rule.id) }

@@ -62,6 +62,9 @@ class WalletApi(private val token: String) {
     @Serializable data class Record(
         val id: String, val counterParty: String? = null, val note: String? = null,
         val category: CategoryEmbed? = null, val source: String? = null,
+        val accountId: String? = null, val amount: Amount? = null,
+        /** ISO-8601, e.g. 2026-09-29T19:28:00Z. */
+        val recordDate: String? = null,
         /** Null for regular records. */
         val transfer: TransferEmbed? = null,
     )
@@ -152,6 +155,25 @@ class WalletApi(private val token: String) {
             }
             get<RecordsPage>("records", *params.toTypedArray()).let { it.records to it.nextOffset }
         }
+
+    /**
+     * Non-transfer records on or after [fromDate] (YYYY-MM-DD) in [accountIds] (up to 10) whose payee
+     * contains [payeeContains], ignoring case. [recordType] is "expense", "income" or null for both.
+     */
+    suspend fun searchRecords(
+        fromDate: String, accountIds: List<String>, payeeContains: String?, recordType: String?, maxPages: Int = 10,
+    ): List<Record> {
+        require(accountIds.size in 1..10)
+        return paged(maxPages) { offset ->
+            val params = buildList {
+                add("recordDate" to "gte.$fromDate"); add("limit" to "200"); add("offset" to "$offset")
+                add("accountId" to accountIds.joinToString(",")); add("isTransfer" to "false")
+                payeeContains?.let { add("counterParty" to "contains-i.$it") }
+                recordType?.let { add("recordType" to it) }
+            }
+            get<RecordsPage>("records", *params.toTypedArray()).let { it.records to it.nextOffset }
+        }
+    }
 
     /** Creates up to 20 records. Items succeed or fail independently. */
     suspend fun createRecords(records: List<NewRecord>): List<WriteResult> {

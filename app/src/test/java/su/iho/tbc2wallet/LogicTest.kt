@@ -22,6 +22,7 @@ import su.iho.tbc2wallet.data.displayName
 import su.iho.tbc2wallet.data.TransactionEntity
 import su.iho.tbc2wallet.data.TxStatus
 import su.iho.tbc2wallet.ingest.Reversals
+import su.iho.tbc2wallet.sync.RuleBackfill
 import su.iho.tbc2wallet.parse.TbcNotificationParser
 import su.iho.tbc2wallet.parse.TxKind
 import org.junit.Assert.assertEquals
@@ -378,5 +379,57 @@ class CategoryTreeTest {
         assertEquals(listOf("Food & Drinks"), f.map { it.name })
         assertEquals(listOf("Restaurant"), f[0].children.map { it.name })
         assertEquals(listOf("Wolt"), CategoryTree.filter(tree, "Restaurant › Wo")[0].children[0].children.map { it.name })
+    }
+}
+
+class RuleBackfillTest {
+    private fun rule(pattern: String, type: MatchType = MatchType.CONTAINS, applies: AppliesTo = AppliesTo.ANY, cat: String = "food") =
+        UserRule(pattern, type, applies, cat, cat)
+
+    private fun record(id: String, payee: String?, value: Double, cat: String? = "unknown", transfer: Boolean = false) =
+        WalletApi.Record(
+            id, counterParty = payee, category = cat?.let { WalletApi.CategoryEmbed(it, it) },
+            amount = WalletApi.Amount(value, "GEL"), recordDate = "2026-09-29T19:28:00Z",
+            transfer = if (transfer) WalletApi.TransferEmbed("t1") else null,
+        )
+
+    @Test fun picksMatchesWhoseCategoryDiffers() {
+        val rules = listOf(rule("wolt"))
+        val items = RuleBackfill.pick(rules, 0, listOf(
+            record("a", "WOLT*1234", -10.0),
+            record("b", "Wolt Market", -5.0, cat = "food"),   // already there
+            record("c", "Glovo", -7.0),                       // doesn't match
+            record("d", "WOLT", -3.0, transfer = true),        // transfers stay as they are
+            record("e", null, -3.0),
+        ))
+        assertEquals(listOf("a"), items.map { it.recordId })
+        assertEquals("unknown", items[0].categoryId)
+        assertEquals(-10.0, items[0].amount!!, 0.0)
+    }
+
+    @Test fun skipsRecordsAMoreSpecificRuleWins() {
+        // The exact rule outranks the new contains rule for this payee.
+        val rules = listOf(rule("WOLT MARKET", MatchType.EXACT, cat = "groceries"), rule("wolt"))
+        val items = RuleBackfill.pick(rules, 1, listOf(
+            record("a", "Wolt Market", -5.0),
+            record("b", "Wolt Tbilisi", -9.0),
+        ))
+        assertEquals(listOf("b"), items.map { it.recordId })
+    }
+
+    @Test fun respectsRuleType() {
+        val rules = listOf(rule("john", applies = AppliesTo.INCOME))
+        val items = RuleBackfill.pick(rules, 0, listOf(
+            record("in", "John Smith", 20.0),
+            record("out", "John Smith", -20.0),
+        ))
+        assertEquals(listOf("in"), items.map { it.recordId })
+    }
+
+    @Test fun searchTextForExactRuleIsItsLongestWord() {
+        assertEquals("TBILISI", RuleBackfill.searchText(rule("Wolt*12 Tbilisi", MatchType.EXACT)))
+        assertEquals("Wolt", RuleBackfill.searchText(rule(" Wolt ")))
+        assertNull(RuleBackfill.searchText(rule("1234", MatchType.EXACT)))
+        assertEquals("expense", RuleBackfill.recordType(rule("x", applies = AppliesTo.EXPENSE)))
     }
 }
