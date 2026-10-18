@@ -110,7 +110,11 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import su.iho.tbc2wallet.categorize.CategoryTree
 import su.iho.tbc2wallet.data.AccountEntity
+import su.iho.tbc2wallet.categorize.AppliesTo
 import su.iho.tbc2wallet.categorize.CategoryResolver
+import su.iho.tbc2wallet.categorize.MatchType
+import su.iho.tbc2wallet.categorize.UserRule
+import su.iho.tbc2wallet.categorize.matches
 import su.iho.tbc2wallet.parse.TxKind
 import su.iho.tbc2wallet.ingest.Reversals
 import su.iho.tbc2wallet.categorize.RuleClash
@@ -705,7 +709,12 @@ private fun RuleDialog(vm: MainViewModel, initial: UserRuleEntity, source: Trans
                     }
                     if (picking) CategoryPickerDialog(categories, onPick = { selected = it; picking = false }, onDismiss = { picking = false })
                 }
-                if (source?.walletRecordId != null && !asTransfer) Text(
+                // Only when the record would make the list: a category rule that matches it, on a record that isn't a transfer.
+                val listsSource = source?.walletRecordId != null && !asTransfer &&
+                    source.categorySource != SyncWorker.TRANSFER_SOURCE && source.kind != null && pattern.isNotBlank() &&
+                    UserRule(pattern, MatchType.valueOf(matchType), AppliesTo.valueOf(appliesTo), "", "")
+                        .matches(TxKind.valueOf(source.kind), source.counterParty.orEmpty())
+                if (listsSource) Text(
                     "After saving, you can pick which records in Wallet to update, this one included.",
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.widthIn(max = OutlinedTextFieldDefaults.MinWidth),

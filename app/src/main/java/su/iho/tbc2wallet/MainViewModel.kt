@@ -13,6 +13,7 @@ import su.iho.tbc2wallet.data.TransactionEntity
 import su.iho.tbc2wallet.data.TxStatus
 import su.iho.tbc2wallet.data.UserRuleEntity
 import su.iho.tbc2wallet.data.toUserRule
+import su.iho.tbc2wallet.data.labelIdList
 import su.iho.tbc2wallet.categorize.UserRule
 import su.iho.tbc2wallet.ingest.Ingest
 import su.iho.tbc2wallet.ingest.TbcNotificationListener
@@ -146,7 +147,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             return@launch
         }
         val changed = before == null || before.pattern != clean.pattern || before.matchType != clean.matchType ||
-            before.appliesTo != clean.appliesTo || before.categoryId != clean.categoryId || before.transferAccountId != null
+            before.appliesTo != clean.appliesTo || before.categoryId != clean.categoryId || before.transferAccountId != null ||
+            !before.labelIdList.containsAll(clean.labelIdList)
         if (changed || fromTx != null) findOlderRecords(id, afterSave = true, alsoRecordId = fromTx?.walletRecordId)
     }
 
