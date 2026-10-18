@@ -168,8 +168,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
                 recordDate = tx.recordDateUtc!!,
                 categoryId = decision.categoryId,
                 counterParty = tx.counterParty,
-                note = (tx.cardLast4?.let { "TBC ***$it" } ?: tx.accountLabel)
-                    .let { if (tx.isFake) listOfNotNull(FAKE_NOTE_MARKER, it).joinToString(" ") else it },
+                note = FAKE_NOTE_MARKER.takeIf { tx.isFake },
                 labelIds = (decision.labelIds + listOfNotNull(fakeLabel.takeIf { tx.isFake })).distinct().ifEmpty { null },
                 transfer = decision.transferAccountId?.let { WalletApi.Transfer(it, pairingMode = "new") },
             )
