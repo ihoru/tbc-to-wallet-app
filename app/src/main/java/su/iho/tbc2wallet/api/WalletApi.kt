@@ -65,9 +65,11 @@ class WalletApi(private val token: String) {
         val accountId: String? = null, val amount: Amount? = null,
         /** ISO-8601, e.g. 2026-09-29T19:28:00Z. */
         val recordDate: String? = null,
+        val labels: List<LabelEmbed> = emptyList(),
         /** Null for regular records. */
         val transfer: TransferEmbed? = null,
     )
+    @Serializable data class LabelEmbed(val id: String? = null, val name: String? = null)
     @Serializable data class TransferEmbed(val transferId: String? = null, val mirrorRecord: MirrorRecord? = null)
     @Serializable data class MirrorRecord(val id: String? = null)
 

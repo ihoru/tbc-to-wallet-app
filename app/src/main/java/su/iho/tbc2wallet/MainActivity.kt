@@ -711,8 +711,12 @@ private fun RuleDialog(vm: MainViewModel, initial: UserRuleEntity, source: Trans
                     modifier = Modifier.widthIn(max = OutlinedTextFieldDefaults.MinWidth),
                 )
                 // Wallet's API can't turn an existing record into a transfer, so only category rules update older ones.
+                // It applies the rule as saved, so it waits until unsaved edits are saved or undone.
+                val unsaved = pattern != initial.pattern || matchType != initial.matchType || appliesTo != initial.appliesTo ||
+                    asTransfer || picked?.id != initial.categoryId || chosenLabels.keys.toList() != initial.labelIdList
                 if (editing && initial.transferAccountId == null) TextButton(
                     onClick = { vm.findOlderRecords(initial.id); onDismiss() },
+                    enabled = !unsaved,
                     contentPadding = PaddingValues(0.dp),
                 ) { Text("Apply to older records…") }
             }

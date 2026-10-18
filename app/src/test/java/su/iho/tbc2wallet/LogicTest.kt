@@ -417,6 +417,13 @@ class RuleBackfillTest {
         assertEquals(listOf("b"), items.map { it.recordId })
     }
 
+    @Test fun includesRecordsMissingTheRuleLabels() {
+        val rules = listOf(rule("wolt").copy(labelIds = listOf("work")))
+        val tagged = record("a", "Wolt", -5.0, cat = "food").copy(labels = listOf(WalletApi.LabelEmbed("work", "Work")))
+        val untagged = record("b", "Wolt", -6.0, cat = "food")
+        assertEquals(listOf("b"), RuleBackfill.pick(rules, 0, listOf(tagged, untagged)).map { it.recordId })
+    }
+
     @Test fun respectsRuleType() {
         val rules = listOf(rule("john", applies = AppliesTo.INCOME))
         val items = RuleBackfill.pick(rules, 0, listOf(

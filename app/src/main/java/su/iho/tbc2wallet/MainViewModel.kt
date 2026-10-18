@@ -124,6 +124,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val items: List<RuleBackfill.Item>,
         val checked: Set<String>,
         val applying: Boolean = false,
+        /** The outcome of the last Apply, shown on the list itself since the snackbar is behind it. */
+        val notice: String? = null,
     )
 
     private val _backfill = MutableStateFlow<Backfill?>(null)
@@ -145,11 +147,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
         val changed = before == null || before.pattern != clean.pattern || before.matchType != clean.matchType ||
             before.appliesTo != clean.appliesTo || before.categoryId != clean.categoryId || before.transferAccountId != null
-        if (changed || fromTx != null) findOlderRecords(id, afterSave = true)
+        if (changed || fromTx != null) findOlderRecords(id, afterSave = true, alsoRecordId = fromTx?.walletRecordId)
     }
 
     /** Looks up the records in Wallet that the rule with [ruleId] would change, and opens the list. */
-    fun findOlderRecords(ruleId: Long, afterSave: Boolean = false) = viewModelScope.launch {
+    fun findOlderRecords(ruleId: Long, afterSave: Boolean = false, alsoRecordId: String? = null) = viewModelScope.launch {
         val saved = if (afterSave) "Rule saved. " else ""
         val all = dao.userRules()
         val index = all.indexOfFirst { it.id == ruleId }.takeIf { it >= 0 } ?: return@launch
@@ -161,10 +163,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val token = settings.apiToken ?: run { _message.value = "${saved}Add your Wallet API token to update older records."; return@launch }
         val currencies = settings.seenCurrencies + accounts.value.map { it.currency }
         val accountIds = currencies.mapNotNull { settings.accountFor(it) }.distinct()
-        if (accountIds.isEmpty()) { _message.value = "${saved}Pick a Wallet account in Settings to update older records."; return@launch }
+        if (accountIds.isEmpty() && alsoRecordId == null) { _message.value = "${saved}Pick a Wallet account in Settings to update older records."; return@launch }
         _busy.value = true
         try {
-            val items = RuleBackfill.find(WalletApi(token), all.map { it.toUserRule() }, index, accountIds)
+            val items = RuleBackfill.find(WalletApi(token), all.map { it.toUserRule() }, index, accountIds, alsoRecordId)
             if (items.isEmpty()) _message.value = "${saved}No older records in Wallet need changing."
             else _backfill.value = Backfill(rule, items, items.map { it.recordId }.toSet())
         } catch (e: Exception) {
@@ -190,25 +192,28 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val token = settings.apiToken ?: return@launch
         val ids = b.items.map { it.recordId }.filter { it in b.checked }
         if (ids.isEmpty() || b.applying) return@launch
-        _backfill.value = b.copy(applying = true)
+        _backfill.value = b.copy(applying = true, notice = null)
         val result = try {
             RuleBackfill.apply(WalletApi(token), b.rule, ids)
         } catch (e: Exception) {
-            _backfill.value = b
-            _message.value = "Wallet didn't update the records: ${walletError(e)}"
+            _backfill.value = b.copy(notice = "Wallet didn't update the records: ${walletError(e)}")
             return@launch
         }
-        if (result.updatedIds.isNotEmpty()) dao.setRuleCategory(result.updatedIds, b.rule.categoryId, b.rule.categoryName)
+        // Chunked to stay under SQLite's limit on query parameters.
+        result.updatedIds.chunked(500).forEach { dao.setRuleCategory(it, b.rule.categoryId, b.rule.categoryName) }
         val done = result.updatedIds.toSet()
         val left = b.items.filterNot { it.recordId in done }
             .map { if (it.recordId in ids) it.copy(error = result.errors[it.recordId]) else it }
-        _backfill.value = if (left.isEmpty()) null else b.copy(items = left, checked = b.checked - done, applying = false)
-        _message.value = when {
+        val updated = "Updated ${done.size} of ${ids.size}."
+        val notice = when {
             result.retryAfterSeconds != null ->
-                "Updated ${done.size} of ${ids.size}. Wallet's hourly limit is reached; try the rest in ${(result.retryAfterSeconds + 59) / 60} min."
-            result.errors.isNotEmpty() -> "Updated ${done.size} of ${ids.size}. Wallet turned down the rest."
-            else -> "Updated ${done.size} ${if (done.size == 1) "record" else "records"} in Wallet."
+                "$updated Wallet's hourly limit is reached; try the rest in ${(result.retryAfterSeconds + 59) / 60} min."
+            result.stoppedBy != null -> "$updated Then: ${walletError(result.stoppedBy)}"
+            result.errors.isNotEmpty() -> "$updated Wallet turned down the rest."
+            else -> null
         }
+        _backfill.value = if (left.isEmpty()) null else b.copy(items = left, checked = b.checked - done, applying = false, notice = notice)
+        if (left.isEmpty()) _message.value = "Updated ${done.size} ${if (done.size == 1) "record" else "records"} in Wallet."
     }
 
     private fun walletError(e: Exception): String = when (e) {

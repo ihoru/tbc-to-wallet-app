@@ -81,7 +81,8 @@ internal fun BackfillScreen(
             )
             Text(
                 "These records in Wallet from the last ${RuleBackfill.MONTHS} months match “${state.rule.pattern}”. " +
-                    "Ticked ones move to $newName.",
+                    "Ticked ones move to $newName" +
+                    state.rule.labelIds.ifEmpty { null }?.let { " and get the rule's labels" }.orEmpty() + ".",
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.padding(horizontal = 16.dp),
             )
@@ -90,6 +91,12 @@ internal fun BackfillScreen(
                 TextButton(onClick = { onCheckAll(!allTicked) }, enabled = !state.applying) {
                     Text(if (allTicked) "Clear all" else "Select all")
                 }
+            }
+            state.notice?.let {
+                Text(
+                    it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                )
             }
             if (state.applying) LinearProgressIndicator(Modifier.fillMaxWidth()) else HorizontalDivider()
             LazyColumn(Modifier.weight(1f)) {

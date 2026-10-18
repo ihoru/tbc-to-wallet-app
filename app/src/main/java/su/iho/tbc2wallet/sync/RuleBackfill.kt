@@ -36,6 +36,8 @@ object RuleBackfill {
         val errors: Map<String, String>,
         /** Set when Wallet's hourly limit stopped the run; the rest weren't tried. */
         val retryAfterSeconds: Long? = null,
+        /** Set when another error stopped the run after some records were updated; the rest weren't tried. */
+        val stoppedBy: Exception? = null,
     )
 
     /**
@@ -55,7 +57,8 @@ object RuleBackfill {
 
     /**
      * The [records] that `rules[ruleIndex]` would win, the way new transactions are categorized
-     * (exact before contains, longer patterns first), and whose category isn't the rule's already.
+     * (exact before contains, longer patterns first), and that don't have the rule's category and all
+     * its labels already.
      */
     fun pick(rules: List<UserRule>, ruleIndex: Int, records: List<WalletApi.Record>): List<Item> {
         val rule = rules[ruleIndex]
@@ -64,25 +67,33 @@ object RuleBackfill {
             val payee = r.counterParty?.trim().orEmpty()
             val value = r.amount?.value ?: return@mapNotNull null
             if (payee.isEmpty() || value == 0.0 || r.transfer != null) return@mapNotNull null
-            if (r.category?.id == rule.categoryId) return@mapNotNull null
+            if (r.category?.id == rule.categoryId && rule.labelIds.all { id -> r.labels.any { it.id == id } }) return@mapNotNull null
             val kind = if (value < 0) TxKind.EXPENSE else TxKind.INCOME
             if (order.firstOrNull { rules[it].matches(kind, payee) } != ruleIndex) return@mapNotNull null
             Item(r.id, payee, r.recordDate, value, r.amount?.currencyCode, r.category?.id, r.category?.name)
         }
     }
 
-    /** Looks up the records [rules][ruleIndex] would change in [accountIds] over the last [MONTHS]. */
-    suspend fun find(api: WalletApi, rules: List<UserRule>, ruleIndex: Int, accountIds: List<String>, today: LocalDate = LocalDate.now()): List<Item> {
+    /**
+     * Looks up the records [rules][ruleIndex] would change in [accountIds] over the last [MONTHS], plus
+     * [alsoRecordId] (the Activity card the rule was made from) wherever and whenever it is.
+     */
+    suspend fun find(
+        api: WalletApi, rules: List<UserRule>, ruleIndex: Int, accountIds: List<String>,
+        alsoRecordId: String? = null, today: LocalDate = LocalDate.now(),
+    ): List<Item> {
         val rule = rules[ruleIndex]
-        if (rule.transferAccountId != null || accountIds.isEmpty()) return emptyList()
+        if (rule.transferAccountId != null) return emptyList()
         val from = today.minusMonths(MONTHS).toString()
         val records = accountIds.distinct().chunked(10).flatMap { api.searchRecords(from, it, searchText(rule), recordType(rule)) }
-        return pick(rules, ruleIndex, records.distinctBy { it.id })
+        val extra = alsoRecordId?.takeIf { id -> records.none { it.id == id } }?.let { api.recordsById(listOf(it)) }.orEmpty()
+        return pick(rules, ruleIndex, (extra + records).distinctBy { it.id })
     }
 
     /**
      * Gives [recordIds] the rule's category and adds its labels, 10 per request. Records succeed or
-     * fail one by one. A rate limit stops the run; other network and auth errors propagate.
+     * fail one by one. A rate limit stops the run, and so does any other error once some records are
+     * updated, so those aren't lost; an error before that propagates.
      */
     suspend fun apply(api: WalletApi, rule: UserRule, recordIds: List<String>): Applied {
         val updated = mutableListOf<String>()
@@ -92,7 +103,10 @@ object RuleBackfill {
             val results = try {
                 api.updateRecords(chunk.map { WalletApi.RecordPatch(it, categoryId = rule.categoryId, addLabels = labels) })
             } catch (e: WalletApi.ApiException.RateLimited) {
-                return Applied(updated, errors, e.retryAfterSeconds)
+                return Applied(updated, errors, retryAfterSeconds = e.retryAfterSeconds)
+            } catch (e: Exception) {
+                if (updated.isEmpty()) throw e
+                return Applied(updated, errors, stoppedBy = e)
             }
             chunk.forEachIndexed { i, id ->
                 val result = results.firstOrNull { it.inputIndex == i }
