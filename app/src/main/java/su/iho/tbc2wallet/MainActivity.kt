@@ -205,6 +205,14 @@ internal fun App(vm: MainViewModel) { // internal for the screenshot tests
     ruleDraft?.let { draft ->
         RuleDialog(vm, initial = draft, source = ruleSource, onDismiss = { ruleDraft = null; ruleSource = null })
     }
+    val backfill by vm.backfill.collectAsState()
+    backfill?.let { b ->
+        BackfillDialog(
+            b, vm.categories.collectAsState().value,
+            onToggle = vm::toggleBackfill, onCheckAll = vm::checkAllBackfill,
+            onApply = { vm.applyBackfill() }, onDismiss = vm::closeBackfill,
+        )
+    }
     if (simulating) FakeNotificationDialog(
         onSubmit = { vm.simulateNotification(it); simulating = false },
         onDismiss = { simulating = false },
@@ -701,16 +709,25 @@ private fun RuleDialog(vm: MainViewModel, initial: UserRuleEntity, source: Trans
                     }
                     if (picking) CategoryPickerDialog(categories, onPick = { selected = it; picking = false }, onDismiss = { picking = false })
                 }
-                // Wallet's API can't turn an existing record into a transfer or back, so only category rules update it.
-                val updatesSource = source?.walletRecordId != null && !asTransfer &&
+                // Only when the record would make the list: a category rule that matches it, on a record that isn't a transfer.
+                val listsSource = source?.walletRecordId != null && !asTransfer &&
                     source.categorySource != SyncWorker.TRANSFER_SOURCE && source.kind != null && pattern.isNotBlank() &&
                     UserRule(pattern, MatchType.valueOf(matchType), AppliesTo.valueOf(appliesTo), "", "")
                         .matches(TxKind.valueOf(source.kind), source.counterParty.orEmpty())
-                if (updatesSource) Text(
-                    "Saving also updates this transaction's record in Wallet.",
+                if (listsSource) Text(
+                    "After saving, you can pick which records in Wallet to update, this one included.",
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.widthIn(max = OutlinedTextFieldDefaults.MinWidth),
                 )
+                // Wallet's API can't turn an existing record into a transfer, so only category rules update older ones.
+                // It applies the rule as saved, so it waits until unsaved edits are saved or undone.
+                val unsaved = pattern != initial.pattern || matchType != initial.matchType || appliesTo != initial.appliesTo ||
+                    asTransfer || picked?.id != initial.categoryId || chosenLabels.keys.toList() != initial.labelIdList
+                if (editing && initial.transferAccountId == null) TextButton(
+                    onClick = { vm.findOlderRecords(initial.id); onDismiss() },
+                    enabled = !unsaved,
+                    contentPadding = PaddingValues(0.dp),
+                ) { Text("Apply to older records…") }
             }
         },
         confirmButton = {

@@ -183,13 +183,17 @@ abstract class AppDao {
     @Query("UPDATE transactions SET status = :status, error = NULL WHERE dedupKey = :key")
     abstract suspend fun setStatus(key: String, status: TxStatus)
 
+    /** Mirrors a category set in Wallet by your rule onto the app's own copies of those records. */
+    @Query("UPDATE transactions SET categoryId = :categoryId, categoryName = :categoryName, categorySource = 'USER_RULE' WHERE walletRecordId IN (:recordIds)")
+    abstract suspend fun setRuleCategory(recordIds: List<String>, categoryId: String, categoryName: String)
+
     @Query("UPDATE transactions SET status = 'PENDING', error = NULL WHERE status = 'NEEDS_ACCOUNT'")
     abstract suspend fun requeueNeedsAccount()
 
     // --- rules & caches
     @Query("SELECT * FROM user_rules ORDER BY pattern COLLATE NOCASE, id") abstract fun observeUserRules(): Flow<List<UserRuleEntity>>
     @Query("SELECT * FROM user_rules ORDER BY id") abstract suspend fun userRules(): List<UserRuleEntity>
-    @Insert abstract suspend fun insertUserRule(rule: UserRuleEntity)
+    @Insert abstract suspend fun insertUserRule(rule: UserRuleEntity): Long
     @Update abstract suspend fun updateUserRule(rule: UserRuleEntity)
     @Query("DELETE FROM user_rules WHERE id = :id") abstract suspend fun deleteUserRule(id: Long)
 
