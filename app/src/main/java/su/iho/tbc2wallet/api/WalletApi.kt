@@ -161,9 +161,10 @@ class WalletApi(private val token: String) {
     /**
      * Non-transfer records on or after [fromDate] (YYYY-MM-DD) in [accountIds] (up to 10) whose payee
      * contains [payeeContains], ignoring case. [recordType] is "expense", "income" or null for both.
+     * Newest first, at most [maxPages] pages of 200, to spare the hourly request limit.
      */
     suspend fun searchRecords(
-        fromDate: String, accountIds: List<String>, payeeContains: String?, recordType: String?, maxPages: Int = 10,
+        fromDate: String, accountIds: List<String>, payeeContains: String?, recordType: String?, maxPages: Int = 3,
     ): List<Record> {
         require(accountIds.size in 1..10)
         return paged(maxPages) { offset ->
