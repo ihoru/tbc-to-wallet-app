@@ -207,7 +207,8 @@ internal fun App(vm: MainViewModel) { // internal for the screenshot tests
     }
     val backfill by vm.backfill.collectAsState()
     backfill?.let { b ->
-        BackfillDialog(
+        // Drawn over the whole app (status bar to navigation bar), above the Scaffold.
+        BackfillScreen(
             b, vm.categories.collectAsState().value,
             onToggle = vm::toggleBackfill, onCheckAll = vm::checkAllBackfill,
             onApply = { vm.applyBackfill() }, onDismiss = vm::closeBackfill,

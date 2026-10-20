@@ -1,5 +1,6 @@
 package su.iho.tbc2wallet
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -30,8 +31,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import su.iho.tbc2wallet.data.CategoryEntity
 import su.iho.tbc2wallet.data.displayName
 import su.iho.tbc2wallet.sync.RuleBackfill
@@ -42,21 +41,11 @@ import java.util.Locale
 
 private val backfillDateFmt = DateTimeFormatter.ofPattern("dd MMM yyyy")
 
-/** Full-screen list of older Wallet records a rule would change, all ticked to start with. */
-@Composable
-internal fun BackfillDialog(
-    state: MainViewModel.Backfill,
-    categories: List<CategoryEntity>,
-    onToggle: (String) -> Unit,
-    onCheckAll: (Boolean) -> Unit,
-    onApply: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    Dialog({ if (!state.applying) onDismiss() }, DialogProperties(usePlatformDefaultWidth = false)) {
-        BackfillScreen(state, categories, onToggle, onCheckAll, onApply, onDismiss)
-    }
-}
-
+/**
+ * Full-screen list of older Wallet records a rule would change, all ticked to start with. It's drawn
+ * over the app itself rather than in a dialog window: on a phone, a full-size dialog ran past the
+ * bottom of the screen and hid the Apply button.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun BackfillScreen(
@@ -71,6 +60,7 @@ internal fun BackfillScreen(
     val newName = byId[state.rule.categoryId]?.displayName ?: state.rule.categoryName
     val ticked = state.items.count { it.recordId in state.checked }
     val allTicked = ticked == state.items.size
+    BackHandler { if (!state.applying) onDismiss() }
     Surface(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
             TopAppBar(
