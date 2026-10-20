@@ -637,6 +637,7 @@ private fun LearnedRow(entry: LearnedEntity, onClick: () -> Unit) {
 @Composable
 private fun RuleDialog(vm: MainViewModel, initial: UserRuleEntity, source: TransactionEntity?, onDismiss: () -> Unit) {
     val categories by vm.categories.collectAsState()
+    val frequent by vm.frequentCategories.collectAsState()
     val labels by vm.labels.collectAsState()
     val accounts by vm.accounts.collectAsState()
     // A prefilled transfer account (id + name) is kept even if it's no longer in the loaded list.
@@ -711,7 +712,7 @@ private fun RuleDialog(vm: MainViewModel, initial: UserRuleEntity, source: Trans
                     )
                     Box(Modifier.matchParentSize().padding(top = 8.dp).clickable(onClickLabel = "Choose category", role = Role.Button) { picking = true })
                     }
-                    if (picking) CategoryPickerDialog(categories, onPick = { selected = it; picking = false }, onDismiss = { picking = false })
+                    if (picking) CategoryPickerDialog(categories, onPick = { selected = it; picking = false }, onDismiss = { picking = false }, frequent = frequent)
                 }
                 // Only when the record would make the list: a category rule that matches it, on a record that isn't a transfer.
                 val listsSource = source?.walletRecordId != null && !asTransfer &&

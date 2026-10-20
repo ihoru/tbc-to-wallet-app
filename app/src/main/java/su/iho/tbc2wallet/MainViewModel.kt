@@ -25,6 +25,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -37,6 +38,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val transactions = dao.observeTransactions().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val userRules = dao.observeUserRules().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val categories = dao.observeCategories().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    /** Your most used categories, most used first, for the top of the category picker. */
+    val frequentCategories = combine(dao.observeFrequentCategoryIds(), categories) { ids, cats ->
+        val byId = cats.associateBy { it.id }
+        val unknown = settings.unknownCategoryIds
+        ids.filter { it !in unknown }.mapNotNull { byId[it] }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val labels = dao.observeLabels().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val accounts = dao.observeAccounts().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val walletRuleCount = dao.observeWalletRuleCount().stateIn(viewModelScope, SharingStarted.Eagerly, 0)

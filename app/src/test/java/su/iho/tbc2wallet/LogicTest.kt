@@ -366,6 +366,26 @@ class CategoryTreeTest {
         assertNull(tree[2].category) // Income has no category of its own here: heading only
     }
 
+    @Test fun groupCategoryFoundByNameAndColorsFollowTheGroup() {
+        // As the API sends one account's Food & Drinks: the group's own category has an unexpected
+        // system id, and two categories carry colors Wallet itself doesn't paint them in.
+        fun cat(id: String, name: String, color: String, sys: String) =
+            CategoryEntity(id, name, null, groupId = "food_and_drinks", groupName = "Food & Drinks", color = color, systemId = sys)
+        val tree = CategoryTree.build(listOf(
+            cat("g", "Food & Drinks", "#e74c3c", "food_and_drinks__general"),
+            cat("b", "Bar cafe", "#ff3d00", "food_and_drinks__bar_cafe"),
+            cat("gr", "Groceries", "#FF3D00", "food_and_drinks__groceries"),
+            cat("r", "Restaurants & fast food", "#cccccc", "food_and_drinks__restaurant_fast_food"),
+            CategoryEntity("w", "Wolt", "Restaurants & fast food", parentId = "r", color = "#26c6da"),
+        ))
+        val food = tree.single()
+        assertEquals("g", food.category?.id) // shown under General, not among its categories
+        assertEquals(listOf("Bar cafe", "Groceries", "Restaurants & fast food"), food.children.map { it.name })
+        assertEquals("#ff3d00", food.color)
+        assertEquals(listOf("#ff3d00"), food.children.map { it.color }.distinct())
+        assertEquals("#26c6da", food.children[2].children.single().color) // a custom subcategory keeps its own
+    }
+
     @Test fun pickerSearchListsEverythingUnderAMatchingGroup() {
         val tree = CategoryTree.build(wallet)
         // Income has no category of its own; its categories still show for "income".
