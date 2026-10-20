@@ -14,6 +14,7 @@ import su.iho.tbc2wallet.data.TxStatus
 import su.iho.tbc2wallet.data.UserRuleEntity
 import su.iho.tbc2wallet.data.toUserRule
 import su.iho.tbc2wallet.data.labelIdList
+import su.iho.tbc2wallet.categorize.RuleClashes
 import su.iho.tbc2wallet.categorize.UserRule
 import su.iho.tbc2wallet.ingest.Ingest
 import su.iho.tbc2wallet.ingest.TbcNotificationListener
@@ -30,6 +31,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val dao = AppDatabase.get(app).dao()
@@ -60,6 +63,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** Bumped to make the settings screen re-read plain preferences. */
     private val _settingsVersion = MutableStateFlow(0)
     val settingsVersion: StateFlow<Int> = _settingsVersion.asStateFlow()
+
+    /** Held while rules are checked for duplicates and written, so no two of those interleave. */
+    private val ruleSaves = Mutex()
+
+    init {
+        // Copies saved before duplicates were blocked (or restored from such a backup) change nothing; drop them.
+        viewModelScope.launch { ruleSaves.withLock { dao.removeDuplicateRules() } }
+    }
 
     fun hasNotificationAccess(): Boolean {
         val ctx = getApplication<Application>()
@@ -146,8 +157,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      */
     fun saveRule(rule: UserRuleEntity, fromTx: TransactionEntity? = null) = viewModelScope.launch {
         val clean = rule.copy(pattern = rule.pattern.trim())
-        val before = dao.userRules().firstOrNull { it.id == clean.id }
-        val id = if (clean.id == 0L) dao.insertUserRule(clean) else clean.id.also { dao.updateUserRule(clean) }
+        // The dialog already blocks this; checked again here in case the rules changed meanwhile.
+        // Locked so two quick saves of the same rule can't both pass the check before either writes,
+        // and so the startup cleanup can't delete a copy that was just edited into a different rule.
+        val (before, id) = ruleSaves.withLock {
+            val all = dao.userRules()
+            if (all.any { it.id != clean.id && RuleClashes.sameRule(it.toUserRule(), clean.toUserRule()) }) {
+                _message.value = "You already have this rule, so nothing was saved."
+                return@launch
+            }
+            all.firstOrNull { it.id == clean.id } to
+                if (clean.id == 0L) dao.insertUserRule(clean) else clean.id.also { dao.updateUserRule(clean) }
+        }
         if (clean.transferAccountId != null) {
             if (fromTx?.status == TxStatus.SENT) _message.value =
                 "Rule saved. Wallet can't turn an existing record into a transfer, so change this one in Wallet."

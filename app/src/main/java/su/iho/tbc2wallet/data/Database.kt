@@ -19,6 +19,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
 import su.iho.tbc2wallet.categorize.AppliesTo
 import su.iho.tbc2wallet.categorize.MatchType
+import su.iho.tbc2wallet.categorize.RuleClashes
 import su.iho.tbc2wallet.categorize.UserRule
 
 enum class TxStatus {
@@ -196,6 +197,9 @@ abstract class AppDao {
     @Insert abstract suspend fun insertUserRule(rule: UserRuleEntity): Long
     @Update abstract suspend fun updateUserRule(rule: UserRuleEntity)
     @Query("DELETE FROM user_rules WHERE id = :id") abstract suspend fun deleteUserRule(id: Long)
+    /** Deletes later copies of the same rule, keeping the oldest; in one transaction so no edit lands in between. */
+    @Transaction open suspend fun removeDuplicateRules() =
+        RuleClashes.duplicates(userRules()) { it.toUserRule() }.forEach { deleteUserRule(it.id) }
 
     @Query("SELECT * FROM wallet_rules") abstract suspend fun walletRules(): List<WalletRuleEntity>
     @Query("SELECT COUNT(*) FROM wallet_rules") abstract fun observeWalletRuleCount(): Flow<Int>
