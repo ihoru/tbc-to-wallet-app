@@ -30,6 +30,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val dao = AppDatabase.get(app).dao()
@@ -137,6 +139,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val notice: String? = null,
     )
 
+    private val ruleSaves = Mutex()
+
     private val _backfill = MutableStateFlow<Backfill?>(null)
     val backfill: StateFlow<Backfill?> = _backfill.asStateFlow()
 
@@ -148,12 +152,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun saveRule(rule: UserRuleEntity, fromTx: TransactionEntity? = null) = viewModelScope.launch {
         val clean = rule.copy(pattern = rule.pattern.trim())
         // The dialog already blocks this; checked again here in case the rules changed meanwhile.
-        if (dao.userRules().any { it.id != clean.id && RuleClashes.sameRule(it.toUserRule(), clean.toUserRule()) }) {
-            _message.value = "You already have this rule, so nothing was saved."
-            return@launch
+        // Locked so two quick saves of the same rule can't both pass the check before either writes.
+        val (before, id) = ruleSaves.withLock {
+            val all = dao.userRules()
+            if (all.any { it.id != clean.id && RuleClashes.sameRule(it.toUserRule(), clean.toUserRule()) }) {
+                _message.value = "You already have this rule, so nothing was saved."
+                return@launch
+            }
+            all.firstOrNull { it.id == clean.id } to
+                if (clean.id == 0L) dao.insertUserRule(clean) else clean.id.also { dao.updateUserRule(clean) }
         }
-        val before = dao.userRules().firstOrNull { it.id == clean.id }
-        val id = if (clean.id == 0L) dao.insertUserRule(clean) else clean.id.also { dao.updateUserRule(clean) }
         if (clean.transferAccountId != null) {
             if (fromTx?.status == TxStatus.SENT) _message.value =
                 "Rule saved. Wallet can't turn an existing record into a transfer, so change this one in Wallet."
