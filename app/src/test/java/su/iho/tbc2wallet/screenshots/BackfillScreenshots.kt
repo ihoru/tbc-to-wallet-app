@@ -3,6 +3,7 @@ package su.iho.tbc2wallet.screenshots
 import android.app.Application
 import android.content.Context
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.hasText
@@ -76,6 +77,23 @@ class BackfillScreenshots {
         }
         compose.waitForIdle()
         captureScreenRoboImage("$out/backfill-list.png")
+    }
+
+    /** The list as the app shows it, over the whole screen, on a tall phone in dark mode. */
+    @Config(qualifiers = "w412dp-h920dp-night-xxhdpi")
+    @Test fun overApp() {
+        val vm = MainViewModel(app)
+        val item = RuleBackfill.Item("r1", "KHARISKHI 777 LLC", "2026-10-20T09:12:00Z", -13.0, "GEL", null, "Unknown expense")
+        @Suppress("UNCHECKED_CAST")
+        val flow = MainViewModel::class.java.getDeclaredField("_backfill").apply { isAccessible = true }.get(vm)
+            as kotlinx.coroutines.flow.MutableStateFlow<MainViewModel.Backfill?>
+        flow.value = MainViewModel.Backfill(
+            UserRule("KHARISKHI 777 LLC", MatchType.EXACT, AppliesTo.ANY, "restaurant", "Food & Drinks"),
+            listOf(item), checked = setOf("r1"),
+        )
+        compose.setContent { MaterialTheme(colorScheme = darkColorScheme()) { App(vm) } }
+        compose.waitUntilAtLeastOneExists(hasText("Apply (1)"), 5_000)
+        captureScreenRoboImage("$out/backfill-over-app.png")
     }
 
     @Test fun ruleDialogButton() {

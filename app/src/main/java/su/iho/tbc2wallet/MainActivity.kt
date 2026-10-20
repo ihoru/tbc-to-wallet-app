@@ -104,6 +104,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -165,7 +166,10 @@ internal fun App(vm: MainViewModel) { // internal for the screenshot tests
         message?.let { snackbar.showSnackbar(it); vm.clearMessage() }
     }
 
+    val backfill by vm.backfill.collectAsState()
     Scaffold(
+        // While the older-records list covers the app, TalkBack and Switch Access shouldn't reach what's under it.
+        modifier = if (backfill != null) Modifier.clearAndSetSemantics {} else Modifier,
         topBar = { TopAppBar(title = { Text("TBC → Wallet") }) },
         snackbarHost = { SnackbarHost(snackbar) },
         bottomBar = {
@@ -205,9 +209,9 @@ internal fun App(vm: MainViewModel) { // internal for the screenshot tests
     ruleDraft?.let { draft ->
         RuleDialog(vm, initial = draft, source = ruleSource, onDismiss = { ruleDraft = null; ruleSource = null })
     }
-    val backfill by vm.backfill.collectAsState()
     backfill?.let { b ->
-        BackfillDialog(
+        // Drawn over the whole app (status bar to navigation bar), above the Scaffold.
+        BackfillScreen(
             b, vm.categories.collectAsState().value,
             onToggle = vm::toggleBackfill, onCheckAll = vm::checkAllBackfill,
             onApply = { vm.applyBackfill() }, onDismiss = vm::closeBackfill,
