@@ -62,11 +62,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         // Copies saved before duplicates were blocked (or restored from such a backup) change nothing; drop them.
-        viewModelScope.launch {
-            ruleSaves.withLock {
-                RuleClashes.duplicates(dao.userRules()) { it.toUserRule() }.forEach { dao.deleteUserRule(it.id) }
-            }
-        }
+        viewModelScope.launch { ruleSaves.withLock { dao.removeDuplicateRules() } }
     }
 
     fun hasNotificationAccess(): Boolean {
