@@ -216,6 +216,18 @@ abstract class AppDao {
     @Transaction open suspend fun replaceLearned(items: List<LearnedEntity>) { clearLearned(); insertLearned(items) }
 
     @Query("SELECT * FROM categories ORDER BY parentName, name") abstract fun observeCategories(): Flow<List<CategoryEntity>>
+    /**
+     * Category ids by how often you use them, most used first: your Wallet history (the learned
+     * payees' votes) plus the records this app has sent.
+     */
+    @Query("""SELECT categoryId FROM (
+            SELECT categoryId, votes AS uses FROM learned
+            UNION ALL
+            SELECT categoryId, 1 AS uses FROM transactions
+            WHERE categoryId IS NOT NULL AND isFake = 0 AND status != 'DELETED' AND walletRecordId IS NOT NULL
+                AND (categorySource IS NULL OR categorySource != 'TRANSFER')
+        ) GROUP BY categoryId ORDER BY SUM(uses) DESC, categoryId LIMIT 30""")
+    abstract fun observeFrequentCategoryIds(): Flow<List<String>>
     @Query("DELETE FROM categories") abstract suspend fun clearCategories()
     @Insert abstract suspend fun insertCategories(items: List<CategoryEntity>)
     @Transaction open suspend fun replaceCategories(items: List<CategoryEntity>) { clearCategories(); insertCategories(items) }

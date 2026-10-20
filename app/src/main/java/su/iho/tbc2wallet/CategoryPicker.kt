@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -31,14 +32,19 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -51,12 +57,18 @@ import su.iho.tbc2wallet.data.CategoryEntity
  * Full-screen category picker laid out like Wallet's: "All categories" lists the groups;
  * opening one shows it under "General" (to pick the group itself) and its categories under
  * "Subcategories", each with a count of its own subcategories. The search icon lists every match.
+ * Your most used categories sit above the groups: a row of a few, which opens into a full list.
  */
 @Composable
-internal fun CategoryPickerDialog(categories: List<CategoryEntity>, onPick: (CategoryEntity) -> Unit, onDismiss: () -> Unit) {
+internal fun CategoryPickerDialog(
+    categories: List<CategoryEntity>,
+    onPick: (CategoryEntity) -> Unit,
+    onDismiss: () -> Unit,
+    frequent: List<CategoryEntity> = emptyList(),
+) {
     // Fits the system bars, so the last rows aren't drawn under the navigation bar.
     Dialog(onDismiss, DialogProperties(usePlatformDefaultWidth = false)) {
-        CategoryPicker(categories, onPick, onDismiss)
+        CategoryPicker(categories, onPick, onDismiss, frequent = frequent)
     }
 }
 
@@ -68,8 +80,23 @@ internal fun CategoryPicker(
     onDismiss: () -> Unit,
     initialPath: List<String> = emptyList(),
     initialQuery: String? = null,
+    frequent: List<CategoryEntity> = emptyList(),
+    initialFrequentOpen: Boolean = false,
 ) {
     val tree = remember(categories) { CategoryTree.build(categories) }
+    // The tree's row for each frequent category, so it gets the same color and glyph as in its group.
+    val frequentRows = remember(tree, frequent) {
+        val byId = mutableMapOf<String, Pair<CategoryNode, String?>>()
+        fun walk(nodes: List<CategoryNode>, above: List<String>) {
+            for (n in nodes) {
+                n.category?.let { byId.putIfAbsent(it.id, n.copy(children = emptyList()) to above.takeIf { it.isNotEmpty() }?.joinToString(" / ")) }
+                walk(n.children, above + n.name)
+            }
+        }
+        walk(tree, emptyList())
+        frequent.mapNotNull { byId[it.id] }.take(FREQUENT_MAX)
+    }
+    var frequentOpen by remember { mutableStateOf(initialFrequentOpen) }
     // Keys of the rows opened so far, outermost first.
     var path by remember { mutableStateOf(initialPath) }
     var query by remember { mutableStateOf(initialQuery) }
@@ -87,6 +114,9 @@ internal fun CategoryPicker(
         }
     }
     BackHandler(onBack = back)
+    val searchFocus = remember { FocusRequester() }
+    val searching = query != null
+    LaunchedEffect(searching) { if (searching) searchFocus.requestFocus() }
     val open = { n: CategoryNode ->
         if (n.children.isNotEmpty()) path = path + n.key else n.category?.let(onPick)
     }
@@ -100,11 +130,12 @@ internal fun CategoryPicker(
                     if (q == null) Text(current?.name ?: "Category")
                     else TextField(
                         q, { query = it },
+                        // Tapping search goes straight to typing: focus the field, which opens the keyboard.
+                        modifier = Modifier.fillMaxWidth().focusRequester(searchFocus),
                         placeholder = { Text("Search categories") }, singleLine = true,
                         colors = TextFieldDefaults.colors(
                             focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent,
                         ),
-                        modifier = Modifier.fillMaxWidth(),
                     )
                 },
                 actions = {
@@ -121,6 +152,16 @@ internal fun CategoryPicker(
                         }
                     }
                     current == null -> {
+                        if (frequentRows.isNotEmpty()) {
+                            val more = frequentRows.size > FREQUENT_ROW
+                            section("Frequently used", action = if (!more) null else if (frequentOpen) "Show less" else "Show all") {
+                                frequentOpen = !frequentOpen
+                            }
+                            if (frequentOpen) items(frequentRows, key = { "frequent:" + it.first.key }) { (n, parentPath) ->
+                                CategoryRow(n, subtitle = parentPath, onClick = { n.category?.let(onPick) })
+                            }
+                            else item(key = "frequent") { FrequentStrip(frequentRows.take(FREQUENT_ROW).map { it.first }, onPick) }
+                        }
                         section("All categories")
                         items(tree, key = { it.key }) { n -> CategoryRow(n, onClick = { open(n) }) }
                     }
@@ -163,14 +204,53 @@ internal fun searchRows(tree: List<CategoryNode>, query: String): List<Pair<Cate
     return out
 }
 
-private fun LazyListScope.section(title: String) = item(key = "section:$title") {
-    Text(
-        title.uppercase(),
+/** How many frequent categories the row shows, and the most the full list does. */
+private const val FREQUENT_ROW = 4
+private const val FREQUENT_MAX = 20
+
+private fun LazyListScope.section(title: String, action: String? = null, onAction: () -> Unit = {}) = item(key = "section:$title") {
+    Row(
         Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerLowest)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        style = MaterialTheme.typography.titleSmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
+            .padding(horizontal = 16.dp).heightIn(min = 44.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            title.uppercase(), Modifier.weight(1f),
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        action?.let {
+            Text(
+                it.uppercase(),
+                Modifier.clickable(onClick = onAction).padding(vertical = 12.dp, horizontal = 4.dp),
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+    }
+    HorizontalDivider()
+}
+
+/** A few of your most used categories side by side, each a badge over its name; nothing to scroll. */
+@Composable
+private fun FrequentStrip(nodes: List<CategoryNode>, onPick: (CategoryEntity) -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 12.dp)) {
+        nodes.forEach { n ->
+            Column(
+                Modifier.weight(1f).clickable { n.category?.let(onPick) }.padding(4.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                CategoryIcon(n.iconKey, n.color, 42.dp)
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    n.name, style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        // Keeps a short row's tiles the same width as a full one's.
+        repeat(FREQUENT_ROW - nodes.size) { Spacer(Modifier.weight(1f)) }
+    }
     HorizontalDivider()
 }
 

@@ -69,4 +69,24 @@ class CategoryPickerScreenshots {
     }
 
     @Test fun search() = shot("4-search") { CategoryPicker(SAMPLE, {}, {}, initialQuery = "re") }
+
+    private val frequent = listOf("wolt", "food_and_drinks__groceries", "transportation__taxi", "sweets", "glovo", "shopping__electronics_accessories")
+        .map { id -> SAMPLE.first { it.id == id } }
+
+    @Test fun frequentRow() = shot("7-frequent") { CategoryPicker(SAMPLE, {}, {}, frequent = frequent) }
+
+    @Test fun frequentList() = shot("8-frequent-all") { CategoryPicker(SAMPLE, {}, {}, frequent = frequent, initialFrequentOpen = true) }
+
+    /** Food & Drinks as one real account's API sends it: odd system id on the group's own category, stray colors. */
+    @Test fun groupAsTheApiSendsIt() = shot("9-group-api-colors") {
+        fun cat(id: String, name: String, color: String) =
+            CategoryEntity(id, name, null, groupId = "food_and_drinks", groupName = "Food & Drinks", color = color, systemId = id)
+        val cats = listOf(
+            cat("food_and_drinks__general", "Food & Drinks", "#e74c3c"),
+            cat("food_and_drinks__bar_cafe", "Bar cafe", "#ff3d00"),
+            cat("food_and_drinks__groceries", "Groceries", "#ff3d00"),
+            cat("food_and_drinks__restaurant_fast_food", "Restaurants & fast food", "#cccccc"),
+        )
+        CategoryPicker(cats, {}, {}, initialPath = listOf("group:food_and_drinks"))
+    }
 }

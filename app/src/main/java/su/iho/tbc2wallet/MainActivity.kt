@@ -640,6 +640,7 @@ private fun LearnedRow(entry: LearnedEntity, onClick: () -> Unit) {
 @Composable
 private fun RuleDialog(vm: MainViewModel, initial: UserRuleEntity, source: TransactionEntity?, onDismiss: () -> Unit) {
     val categories by vm.categories.collectAsState()
+    val frequent by vm.frequentCategories.collectAsState()
     val labels by vm.labels.collectAsState()
     val accounts by vm.accounts.collectAsState()
     val rules by vm.userRules.collectAsState()
@@ -737,7 +738,7 @@ private fun RuleDialog(vm: MainViewModel, initial: UserRuleEntity, source: Trans
                     )
                     Box(Modifier.matchParentSize().padding(top = 8.dp).clickable(onClickLabel = "Choose category", role = Role.Button) { picking = true })
                     }
-                    if (picking) CategoryPickerDialog(categories, onPick = { selected = it; picking = false }, onDismiss = { picking = false })
+                    if (picking) CategoryPickerDialog(categories, onPick = { selected = it; picking = false }, onDismiss = { picking = false }, frequent = frequent)
                 }
                 if (duplicate != null) Text(
                     "You already have this rule, so it can't be saved again.",

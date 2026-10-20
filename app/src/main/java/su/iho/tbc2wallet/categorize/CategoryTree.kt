@@ -7,7 +7,8 @@ import su.iho.tbc2wallet.data.CategoryEntity
  * group (Food & Drinks) › category (Groceries) › your custom subcategories.
  * [category] is null for a heading that isn't itself a category you can pick
  * (e.g. a group with no category of its own, or an archived parent).
- * [color] is Wallet's hex color, inherited from the parent when a row has none.
+ * [color] is Wallet's hex color: the group's for its categories, a custom subcategory's own
+ * (or its parent's when it has none).
  */
 data class CategoryNode(
     val key: String,
@@ -44,8 +45,7 @@ object CategoryTree {
         fun custom(c: CategoryEntity, color: String?, parentPath: String, icon: String) =
             CategoryNode(c.id, c.name, c, c.color ?: color, path = "$parentPath › ${c.name}", iconKey = icon)
 
-        fun leafOrBase(c: CategoryEntity, parentColor: String?, parentPath: String?, groupIcon: String?): CategoryNode {
-            val color = c.color ?: parentColor
+        fun leafOrBase(c: CategoryEntity, color: String?, parentPath: String?, groupIcon: String?): CategoryNode {
             val path = parentPath?.let { "$it › ${c.name}" } ?: c.name
             val kids = customsByBase[c.id].orEmpty().sortedWith(byName)
                 .map { custom(it, color, path, groupIcon ?: c.systemId ?: c.name) }
@@ -56,16 +56,18 @@ object CategoryTree {
         val (grouped, ungrouped) = bases.partition { !it.groupId.isNullOrBlank() }
         grouped.groupBy { it.groupId!! }.forEach { (groupId, members) ->
             val groupName = members.firstNotNullOfOrNull { it.groupName } ?: groupId
-            // The group's own category, if Wallet has one (its system id is the group's slug).
-            val own = members.firstOrNull { it.systemId == groupId }
-                ?: members.firstOrNull { it.systemId == null && it.name == groupName }
-            val color = own?.color ?: members.firstNotNullOfOrNull { it.color }
-            val kids = (members - listOfNotNull(own).toSet()).sortedWith(byName).map { leafOrBase(it, color, groupName, groupId) }
+            val own = ownCategory(groupId, groupName, members)
+            // Wallet paints a group's categories in the group's color, whatever stray colors the API
+            // reports for some of them (e.g. #cccccc), so take the color most of them share.
+            val color = members.mapNotNull { it.color?.lowercase() }.groupingBy { it }.eachCount()
+                .maxWithOrNull(compareBy<Map.Entry<String, Int>> { it.value }.thenBy { it.key == own?.color?.lowercase() })?.key
+            val kids = (members - listOfNotNull(own).toSet()).sortedWith(byName)
+                .map { leafOrBase(it, color, groupName, groupId) }
             val ownCustoms = own?.let { customsByBase[it.id] }.orEmpty().sortedWith(byName)
                 .map { custom(it, color, groupName, groupId) }
             roots += CategoryNode("group:$groupId", groupName, own, color, ownCustoms + kids, iconKey = groupId)
         }
-        ungrouped.forEach { roots += leafOrBase(it, null, null, null) }
+        ungrouped.forEach { roots += leafOrBase(it, it.color, null, null) }
         // Custom subcategories whose base isn't in the list (archived, say) get a heading of their own.
         customsByBase.filterKeys { it.startsWith("name:") }.forEach { (key, kids) ->
             val name = key.removePrefix("name:")
@@ -77,6 +79,17 @@ object CategoryTree {
             GROUP_ORDER.indexOf(n.key.removePrefix("group:")).let { if (it < 0) GROUP_ORDER.size else it }
         }
         return roots.sortedWith(compareBy<CategoryNode> { groupIndex(it) }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.name })
+    }
+
+    /**
+     * The group's own category (Food & Drinks inside Food & Drinks), if Wallet has one: its system id
+     * is the group's slug, or failing that its name is the group's.
+     */
+    private fun ownCategory(groupId: String, groupName: String, members: List<CategoryEntity>): CategoryEntity? {
+        fun norm(s: String) = s.lowercase().filter { it.isLetterOrDigit() }
+        return members.firstOrNull { it.systemId == groupId }
+            ?: members.firstOrNull { it.systemId?.substringAfter("__") == groupId }
+            ?: members.firstOrNull { norm(it.name) == norm(groupName) }
     }
 
     /**
