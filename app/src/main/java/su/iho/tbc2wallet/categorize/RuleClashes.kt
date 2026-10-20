@@ -20,6 +20,18 @@ object RuleClashes {
         return clashes
     }
 
+    /**
+     * True when [a] and [b] are the same rule: same payee text (ignoring case and outer spaces),
+     * match type, scope and outcome. Keeping both changes nothing, so the app doesn't allow it.
+     */
+    fun sameRule(a: UserRule, b: UserRule) =
+        a.pattern.trim().equals(b.pattern.trim(), ignoreCase = true) && a.matchType == b.matchType &&
+            a.appliesTo == b.appliesTo && sameOutcome(a, b)
+
+    /** Later copies of an earlier rule in [rules] (list order, oldest first); the oldest of each is kept. */
+    fun <T> duplicates(rules: List<T>, view: (T) -> UserRule): List<T> =
+        rules.filterIndexed { i, r -> (0 until i).any { sameRule(view(rules[it]), view(r)) } }
+
     private fun scopesOverlap(a: UserRule, b: UserRule) =
         a.appliesTo == AppliesTo.ANY || b.appliesTo == AppliesTo.ANY || a.appliesTo == b.appliesTo
 

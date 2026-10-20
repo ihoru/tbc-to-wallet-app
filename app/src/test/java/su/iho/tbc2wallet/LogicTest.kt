@@ -26,6 +26,7 @@ import su.iho.tbc2wallet.sync.RuleBackfill
 import su.iho.tbc2wallet.parse.TbcNotificationParser
 import su.iho.tbc2wallet.parse.TxKind
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -208,6 +209,21 @@ class ResolverTest {
 
     @Test fun differentLabelsAlsoClash() {
         assertEquals(1, RuleClashes.find(listOf(rule("wolt"), rule("wolt", labels = listOf("l1")))) { it }.size)
+    }
+
+    @Test fun sameRuleIgnoresCaseSpacesAndLabelOrder() {
+        assertTrue(RuleClashes.sameRule(rule("XARISXI777 LTD", MatchType.EXACT), rule(" xarisxi777 ltd ", MatchType.EXACT)))
+        assertTrue(RuleClashes.sameRule(rule("wolt", labels = listOf("a", "b")), rule("wolt", labels = listOf("b", "a"))))
+        assertFalse(RuleClashes.sameRule(rule("wolt"), rule("wolt", MatchType.EXACT)))
+        assertFalse(RuleClashes.sameRule(rule("wolt"), rule("wolt", s = AppliesTo.EXPENSE)))
+        assertFalse(RuleClashes.sameRule(rule("wolt"), rule("wolt", cat = "c2")))
+        assertFalse(RuleClashes.sameRule(rule("wolt"), rule("wolt", labels = listOf("l1"))))
+        assertFalse(RuleClashes.sameRule(rule("wolt"), rule("wolt").copy(transferAccountId = "acc")))
+    }
+
+    @Test fun duplicatesKeepTheOldestCopy() {
+        val rules = listOf(rule("wolt"), rule("glovo"), rule("WOLT"), rule("wolt", cat = "c2"), rule("wolt "))
+        assertEquals(listOf(rules[2], rules[4]), RuleClashes.duplicates(rules) { it })
     }
 
     @Test fun noClashForSameOutcomeSeparateScopesOrUnrelatedPatterns() {
