@@ -57,10 +57,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val _settingsVersion = MutableStateFlow(0)
     val settingsVersion: StateFlow<Int> = _settingsVersion.asStateFlow()
 
+    /** Held while rules are checked for duplicates and written, so no two of those interleave. */
+    private val ruleSaves = Mutex()
+
     init {
         // Copies saved before duplicates were blocked (or restored from such a backup) change nothing; drop them.
         viewModelScope.launch {
-            RuleClashes.duplicates(dao.userRules()) { it.toUserRule() }.forEach { dao.deleteUserRule(it.id) }
+            ruleSaves.withLock {
+                RuleClashes.duplicates(dao.userRules()) { it.toUserRule() }.forEach { dao.deleteUserRule(it.id) }
+            }
         }
     }
 
@@ -139,8 +144,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val notice: String? = null,
     )
 
-    private val ruleSaves = Mutex()
-
     private val _backfill = MutableStateFlow<Backfill?>(null)
     val backfill: StateFlow<Backfill?> = _backfill.asStateFlow()
 
@@ -152,7 +155,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun saveRule(rule: UserRuleEntity, fromTx: TransactionEntity? = null) = viewModelScope.launch {
         val clean = rule.copy(pattern = rule.pattern.trim())
         // The dialog already blocks this; checked again here in case the rules changed meanwhile.
-        // Locked so two quick saves of the same rule can't both pass the check before either writes.
+        // Locked so two quick saves of the same rule can't both pass the check before either writes,
+        // and so the startup cleanup can't delete a copy that was just edited into a different rule.
         val (before, id) = ruleSaves.withLock {
             val all = dao.userRules()
             if (all.any { it.id != clean.id && RuleClashes.sameRule(it.toUserRule(), clean.toUserRule()) }) {
