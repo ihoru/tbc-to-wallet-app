@@ -639,6 +639,7 @@ private fun RuleDialog(vm: MainViewModel, initial: UserRuleEntity, source: Trans
     val categories by vm.categories.collectAsState()
     val labels by vm.labels.collectAsState()
     val accounts by vm.accounts.collectAsState()
+    val rules by vm.userRules.collectAsState()
     // A prefilled transfer account (id + name) is kept even if it's no longer in the loaded list.
     var transferAccount by remember {
         mutableStateOf(initial.transferAccountId?.let { it to (initial.transferAccountName ?: it) })
@@ -658,6 +659,27 @@ private fun RuleDialog(vm: MainViewModel, initial: UserRuleEntity, source: Trans
     }
     // The live catalog entry when there is one, so the field and the saved name use its current name and group.
     val picked = selected?.let { s -> categories.firstOrNull { it.id == s.id } ?: s }
+
+    // The rule as it would be saved; null until it has a category or transfer account.
+    fun draft(): UserRuleEntity? {
+        val transfer = transferAccount.takeIf { asTransfer }
+        if (transfer == null && picked == null) return null
+        return initial.copy(
+            pattern = pattern, matchType = matchType, appliesTo = appliesTo,
+            categoryId = if (transfer == null) picked.id else "",
+            categoryName = if (transfer == null) picked.displayName else "",
+            transferAccountId = transfer?.first,
+            // Current "Name (CUR)" from Wallet, so rules saved before the currency was added pick it up.
+            transferAccountName = transfer?.let { (id, name) -> accounts.firstOrNull { it.id == id }?.let(::accountLabel) ?: name },
+            labelIds = chosenLabels.keys.joinToString("\n"),
+            // Prefer Wallet's current name in case a label was renamed since the rule was saved.
+            labelNames = chosenLabels.map { (id, name) -> labels.firstOrNull { it.id == id }?.name ?: name }.joinToString("\n"),
+        )
+    }
+    // Another rule that this one would exactly repeat; saving is blocked while there is one.
+    val duplicate = draft()?.takeIf { it.pattern.isNotBlank() }?.toUserRule()?.let { d ->
+        rules.firstOrNull { it.id != initial.id && RuleClashes.sameRule(it.toUserRule(), d) }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -713,6 +735,12 @@ private fun RuleDialog(vm: MainViewModel, initial: UserRuleEntity, source: Trans
                     }
                     if (picking) CategoryPickerDialog(categories, onPick = { selected = it; picking = false }, onDismiss = { picking = false })
                 }
+                if (duplicate != null) Text(
+                    "You already have this rule, so it can't be saved again.",
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.widthIn(max = OutlinedTextFieldDefaults.MinWidth),
+                )
                 // Only when the record would make the list: a category rule that matches it, on a record that isn't a transfer.
                 val listsSource = source?.walletRecordId != null && !asTransfer &&
                     source.categorySource != SyncWorker.TRANSFER_SOURCE && source.kind != null && pattern.isNotBlank() &&
@@ -736,20 +764,9 @@ private fun RuleDialog(vm: MainViewModel, initial: UserRuleEntity, source: Trans
         },
         confirmButton = {
             TextButton(
-                enabled = pattern.isNotBlank() && if (asTransfer) transferAccount != null else selected != null,
+                enabled = pattern.isNotBlank() && (if (asTransfer) transferAccount != null else selected != null) && duplicate == null,
                 onClick = {
-                    val transfer = transferAccount.takeIf { asTransfer }
-                    vm.saveRule(initial.copy(
-                        pattern = pattern, matchType = matchType, appliesTo = appliesTo,
-                        categoryId = if (transfer == null) picked!!.id else "",
-                        categoryName = if (transfer == null) picked!!.displayName else "",
-                        transferAccountId = transfer?.first,
-                        // Current "Name (CUR)" from Wallet, so rules saved before the currency was added pick it up.
-                        transferAccountName = transfer?.let { (id, name) -> accounts.firstOrNull { it.id == id }?.let(::accountLabel) ?: name },
-                        labelIds = chosenLabels.keys.joinToString("\n"),
-                        // Prefer Wallet's current name in case a label was renamed since the rule was saved.
-                        labelNames = chosenLabels.map { (id, name) -> labels.firstOrNull { it.id == id }?.name ?: name }.joinToString("\n"),
-                    ), fromTx = source)
+                    vm.saveRule(draft()!!, fromTx = source)
                     onDismiss()
                 },
             ) { Text("Save") }

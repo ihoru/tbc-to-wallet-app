@@ -14,6 +14,7 @@ import su.iho.tbc2wallet.data.TxStatus
 import su.iho.tbc2wallet.data.UserRuleEntity
 import su.iho.tbc2wallet.data.toUserRule
 import su.iho.tbc2wallet.data.labelIdList
+import su.iho.tbc2wallet.categorize.RuleClashes
 import su.iho.tbc2wallet.categorize.UserRule
 import su.iho.tbc2wallet.ingest.Ingest
 import su.iho.tbc2wallet.ingest.TbcNotificationListener
@@ -53,6 +54,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** Bumped to make the settings screen re-read plain preferences. */
     private val _settingsVersion = MutableStateFlow(0)
     val settingsVersion: StateFlow<Int> = _settingsVersion.asStateFlow()
+
+    init {
+        // Copies saved before duplicates were blocked (or restored from such a backup) change nothing; drop them.
+        viewModelScope.launch {
+            RuleClashes.duplicates(dao.userRules()) { it.toUserRule() }.forEach { dao.deleteUserRule(it.id) }
+        }
+    }
 
     fun hasNotificationAccess(): Boolean {
         val ctx = getApplication<Application>()
@@ -139,6 +147,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      */
     fun saveRule(rule: UserRuleEntity, fromTx: TransactionEntity? = null) = viewModelScope.launch {
         val clean = rule.copy(pattern = rule.pattern.trim())
+        // The dialog already blocks this; checked again here in case the rules changed meanwhile.
+        if (dao.userRules().any { it.id != clean.id && RuleClashes.sameRule(it.toUserRule(), clean.toUserRule()) }) {
+            _message.value = "You already have this rule, so nothing was saved."
+            return@launch
+        }
         val before = dao.userRules().firstOrNull { it.id == clean.id }
         val id = if (clean.id == 0L) dao.insertUserRule(clean) else clean.id.also { dao.updateUserRule(clean) }
         if (clean.transferAccountId != null) {

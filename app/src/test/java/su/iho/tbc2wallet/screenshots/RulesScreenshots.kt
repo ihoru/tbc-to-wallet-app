@@ -212,6 +212,24 @@ class RulesScreenshots {
         captureScreenRoboImage("$out/rule-delete-confirm-from-edit.png")
     }
 
+    @Test fun duplicateRuleBlocked() {
+        // A twin of "Bolt · expenses" except for its scope; switching that rule to Any makes it an exact copy.
+        runBlocking {
+            AppDatabase.get(ApplicationProvider.getApplicationContext()).dao().insertUserRule(UserRuleEntity(
+                pattern = "Bolt", matchType = "CONTAINS", appliesTo = "INCOME",
+                categoryId = "taxi", categoryName = "Transportation › Taxi", labelIds = "l3", labelNames = "work",
+            ))
+        }
+        showRules()
+        scrollTo("Payee contains “Bolt” · expenses")
+        compose.mainClock.autoAdvance = false
+        compose.onNodeWithText("Payee contains “Bolt” · expenses").performClick()
+        compose.mainClock.advanceTimeBy(2_000)
+        clickInLatestDialog("Income")
+        compose.mainClock.advanceTimeBy(2_000)
+        captureScreenRoboImage("$out/rule-duplicate-blocked.png")
+    }
+
     /** Finding nodes once a dialog is open over the app never idles, so click through the dialog's own semantics. */
     private fun clickInLatestDialog(text: String) {
         fun rootOf(view: View): ViewRootForTest? = view as? ViewRootForTest
