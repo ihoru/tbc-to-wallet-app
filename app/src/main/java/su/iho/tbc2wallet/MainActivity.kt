@@ -199,7 +199,7 @@ internal fun App(vm: MainViewModel) { // internal for the screenshot tests
         Column(Modifier.padding(padding).fillMaxSize()) {
             if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
             when (tab) {
-                Tab.ACTIVITY -> ActivityScreen(vm, onMakeRule = { tx -> ruleSource = tx; ruleDraft = newRule(tx.counterParty.orEmpty()) })
+                Tab.ACTIVITY -> ActivityScreen(vm, onMakeRule = { tx -> ruleSource = tx; ruleDraft = newRule(tx.counterParty.orEmpty(), tx.kind) })
                 Tab.RULES -> RulesScreen(vm, onEdit = { ruleSource = null; ruleDraft = it })
                 Tab.SETTINGS -> SettingsScreen(vm)
             }
@@ -223,8 +223,11 @@ internal fun App(vm: MainViewModel) { // internal for the screenshot tests
     )
 }
 
-private fun newRule(pattern: String) =
-    UserRuleEntity(pattern = pattern, matchType = "EXACT", appliesTo = "ANY", categoryId = "", categoryName = "")
+// New rules cover expenses unless they're made from an income transaction.
+private fun newRule(pattern: String, kind: String? = null) = UserRuleEntity(
+    pattern = pattern, matchType = "EXACT", appliesTo = if (kind == "INCOME") "INCOME" else "EXPENSE",
+    categoryId = "", categoryName = "",
+)
 
 // ---------------------------------------------------------------- Activity
 
