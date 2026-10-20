@@ -663,11 +663,12 @@ private fun RuleDialog(vm: MainViewModel, initial: UserRuleEntity, source: Trans
     // The rule as it would be saved; null until it has a category or transfer account.
     fun draft(): UserRuleEntity? {
         val transfer = transferAccount.takeIf { asTransfer }
-        if (transfer == null && picked == null) return null
+        val category = picked.takeIf { transfer == null }
+        if (transfer == null && category == null) return null
         return initial.copy(
             pattern = pattern, matchType = matchType, appliesTo = appliesTo,
-            categoryId = if (transfer == null) picked.id else "",
-            categoryName = if (transfer == null) picked.displayName else "",
+            categoryId = category?.id ?: "",
+            categoryName = category?.displayName ?: "",
             transferAccountId = transfer?.first,
             // Current "Name (CUR)" from Wallet, so rules saved before the currency was added pick it up.
             transferAccountName = transfer?.let { (id, name) -> accounts.firstOrNull { it.id == id }?.let(::accountLabel) ?: name },
