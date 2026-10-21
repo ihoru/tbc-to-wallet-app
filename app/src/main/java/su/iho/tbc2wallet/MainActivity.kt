@@ -663,6 +663,7 @@ private fun RuleDialog(vm: MainViewModel, initial: UserRuleEntity, source: Trans
     }
     // The live catalog entry when there is one, so the field and the saved name use its current name and group.
     val picked = selected?.let { s -> categories.firstOrNull { it.id == s.id } ?: s }
+    val pickerRows = remember(categories) { CategoryTree.rowsById(CategoryTree.build(categories)) }
 
     // The rule as it would be saved; null until it has a category or transfer account.
     fun draft(): UserRuleEntity? {
@@ -732,7 +733,11 @@ private fun RuleDialog(vm: MainViewModel, initial: UserRuleEntity, source: Trans
                         readOnly = true,
                         label = { Text("Category") }, singleLine = true,
                         placeholder = { Text("Choose…") },
-                        leadingIcon = picked?.let { c -> { CategoryIcon(c.systemId ?: c.groupId ?: c.name, c.color, 28.dp) } },
+                        // The picker's own row for it, so the badge keeps the group color it had there.
+                        leadingIcon = picked?.let { c ->
+                            { val row = pickerRows[c.id]?.first
+                              CategoryIcon(row?.iconKey ?: c.systemId ?: c.groupId ?: c.name, row?.color ?: c.color, 28.dp) }
+                        },
                         trailingIcon = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null) },
                         modifier = Modifier.fillMaxWidth(),
                     )

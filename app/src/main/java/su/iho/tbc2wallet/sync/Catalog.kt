@@ -6,6 +6,7 @@ import su.iho.tbc2wallet.categorize.PayeeLearner
 import su.iho.tbc2wallet.data.AccountEntity
 import su.iho.tbc2wallet.data.AppDatabase
 import su.iho.tbc2wallet.data.CategoryEntity
+import su.iho.tbc2wallet.data.CategoryUsageEntity
 import su.iho.tbc2wallet.data.LabelEntity
 import su.iho.tbc2wallet.data.LearnedEntity
 import su.iho.tbc2wallet.data.Settings
@@ -78,11 +79,20 @@ class Catalog(private val context: Context) {
         dao.replaceLearned(learned.values.filter { it.payeeKey !in forgotten }.map {
             LearnedEntity(it.payeeKey, it.categoryId, it.categoryName, it.votes, it.totalVotes)
         })
+        // Plain counts of every record per category, for the picker's "Frequently used".
+        // The app's records in this history are marked, so only ones sent after it count on top.
+        dao.replaceCategoryUsage(
+            history.mapNotNull { it.categoryId }.filter { it !in settings.unknownCategoryIds }
+                .groupingBy { it }.eachCount().map { (id, n) -> CategoryUsageEntity(id, n) },
+            history.map { it.recordId },
+        )
+        settings.categoryUsageCounted = true
         settings.lastLearnRefresh = System.currentTimeMillis()
     }
 
     fun catalogStale() = System.currentTimeMillis() - settings.lastCatalogRefresh > DAY_MS
-    fun learnedStale() = System.currentTimeMillis() - settings.lastLearnRefresh > DAY_MS
+    // Also stale until the usage counts were filled once, e.g. right after the update that added them.
+    fun learnedStale() = !settings.categoryUsageCounted || System.currentTimeMillis() - settings.lastLearnRefresh > DAY_MS
 
     private companion object { const val DAY_MS = 24 * 60 * 60 * 1000L }
 }

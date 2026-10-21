@@ -82,6 +82,22 @@ object CategoryTree {
     }
 
     /**
+     * Each pickable row by its category id, with the names above it ("Food & Drinks / Bar, cafe"),
+     * so a category shown outside the tree gets the same color and glyph as inside it.
+     */
+    fun rowsById(tree: List<CategoryNode>): Map<String, Pair<CategoryNode, String?>> {
+        val out = mutableMapOf<String, Pair<CategoryNode, String?>>()
+        fun walk(nodes: List<CategoryNode>, above: List<String>) {
+            for (n in nodes) {
+                n.category?.let { out.putIfAbsent(it.id, n.copy(children = emptyList()) to above.takeIf { it.isNotEmpty() }?.joinToString(" / ")) }
+                walk(n.children, above + n.name)
+            }
+        }
+        walk(tree, emptyList())
+        return out
+    }
+
+    /**
      * The group's own category (Food & Drinks inside Food & Drinks), if Wallet has one: its system id
      * is the group's slug, or failing that its name is the group's.
      */
