@@ -89,6 +89,17 @@ data class WalletRuleEntity(
     val fromAccountId: String?,
 )
 
+/**
+ * How many of your Wallet records (last 12 months) sit in each category, counted at
+ * [countedUntil] (epoch millis), when the history was last read.
+ */
+@Entity(tableName = "category_usage")
+data class CategoryUsageEntity(
+    @PrimaryKey val categoryId: String,
+    val uses: Int,
+    val countedUntil: Long,
+)
+
 @Entity(tableName = "learned")
 data class LearnedEntity(
     @PrimaryKey val payeeKey: String,
@@ -215,18 +226,23 @@ abstract class AppDao {
     @Insert abstract suspend fun insertLearned(items: List<LearnedEntity>)
     @Transaction open suspend fun replaceLearned(items: List<LearnedEntity>) { clearLearned(); insertLearned(items) }
 
+    @Query("DELETE FROM category_usage") abstract suspend fun clearCategoryUsage()
+    @Insert abstract suspend fun insertCategoryUsage(items: List<CategoryUsageEntity>)
+    @Transaction open suspend fun replaceCategoryUsage(items: List<CategoryUsageEntity>) { clearCategoryUsage(); insertCategoryUsage(items) }
+
     @Query("SELECT * FROM categories ORDER BY parentName, name") abstract fun observeCategories(): Flow<List<CategoryEntity>>
     /**
-     * Category ids by how often you use them, most used first: your Wallet history (the learned
-     * payees' votes) plus the records this app has sent.
+     * Category ids by how often you use them, most used first: your Wallet history as last counted,
+     * plus the records this app has sent since then. All of them; the caller drops stale ids first.
      */
     @Query("""SELECT categoryId FROM (
-            SELECT categoryId, votes AS uses FROM learned
+            SELECT categoryId, uses FROM category_usage
             UNION ALL
             SELECT categoryId, 1 AS uses FROM transactions
             WHERE categoryId IS NOT NULL AND isFake = 0 AND status != 'DELETED' AND walletRecordId IS NOT NULL
                 AND (categorySource IS NULL OR categorySource != 'TRANSFER')
-        ) GROUP BY categoryId ORDER BY SUM(uses) DESC, categoryId LIMIT 30""")
+                AND receivedAt > COALESCE((SELECT MAX(countedUntil) FROM category_usage), 0)
+        ) GROUP BY categoryId ORDER BY SUM(uses) DESC, categoryId""")
     abstract fun observeFrequentCategoryIds(): Flow<List<String>>
     @Query("DELETE FROM categories") abstract suspend fun clearCategories()
     @Insert abstract suspend fun insertCategories(items: List<CategoryEntity>)
@@ -249,8 +265,9 @@ data class SentAssignment(val dedupKey: String, val walletRecordId: String?, val
     entities = [
         TransactionEntity::class, UserRuleEntity::class, WalletRuleEntity::class,
         LearnedEntity::class, CategoryEntity::class, AccountEntity::class, LabelEntity::class,
+        CategoryUsageEntity::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -261,7 +278,7 @@ abstract class AppDatabase : RoomDatabase() {
         fun get(context: Context): AppDatabase = instance ?: synchronized(this) {
             instance ?: RulesBackup(context).let { backup ->
                 Room.databaseBuilder(context.applicationContext, AppDatabase::class.java, "tbc2wallet.db")
-                    .addMigrations(*(1..5).map(::catchUp).toTypedArray())
+                    .addMigrations(*(1..6).map(::catchUp).toTypedArray())
                     .addCallback(backup.callback)
                     .build().also { backup.watch(it); instance = it }
             }
@@ -272,7 +289,7 @@ abstract class AppDatabase : RoomDatabase() {
          * transfer rules), so a phone may be on any mix of them. Every old version jumps straight
          * to the current one and adds only what's missing.
          */
-        private fun catchUp(from: Int) = object : Migration(from, 6) {
+        private fun catchUp(from: Int) = object : Migration(from, 7) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.addColumnIfMissing("transactions", "isFake", "INTEGER NOT NULL DEFAULT 0")
                 db.addColumnIfMissing("transactions", "reversesKey", "TEXT")
@@ -282,6 +299,7 @@ abstract class AppDatabase : RoomDatabase() {
                 db.addColumnIfMissing("user_rules", "transferAccountName", "TEXT")
                 for (col in listOf("parentId", "groupId", "groupName", "color", "systemId")) db.addColumnIfMissing("categories", col, "TEXT")
                 db.execSQL("CREATE TABLE IF NOT EXISTS labels (id TEXT NOT NULL, name TEXT NOT NULL, PRIMARY KEY(id))")
+                db.execSQL("CREATE TABLE IF NOT EXISTS category_usage (categoryId TEXT NOT NULL, uses INTEGER NOT NULL, countedUntil INTEGER NOT NULL, PRIMARY KEY(categoryId))")
             }
         }
 

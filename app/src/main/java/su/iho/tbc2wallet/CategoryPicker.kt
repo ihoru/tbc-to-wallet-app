@@ -86,14 +86,7 @@ internal fun CategoryPicker(
     val tree = remember(categories) { CategoryTree.build(categories) }
     // The tree's row for each frequent category, so it gets the same color and glyph as in its group.
     val frequentRows = remember(tree, frequent) {
-        val byId = mutableMapOf<String, Pair<CategoryNode, String?>>()
-        fun walk(nodes: List<CategoryNode>, above: List<String>) {
-            for (n in nodes) {
-                n.category?.let { byId.putIfAbsent(it.id, n.copy(children = emptyList()) to above.takeIf { it.isNotEmpty() }?.joinToString(" / ")) }
-                walk(n.children, above + n.name)
-            }
-        }
-        walk(tree, emptyList())
+        val byId = CategoryTree.rowsById(tree)
         frequent.mapNotNull { byId[it.id] }.take(FREQUENT_MAX)
     }
     var frequentOpen by remember { mutableStateOf(initialFrequentOpen) }

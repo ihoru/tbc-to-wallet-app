@@ -402,6 +402,16 @@ class CategoryTreeTest {
         assertEquals("#26c6da", food.children[2].children.single().color) // a custom subcategory keeps its own
     }
 
+    @Test fun rowsByIdCarryTheTreeColorAndPath() {
+        val rows = CategoryTree.rowsById(CategoryTree.build(listOf(
+            CategoryEntity("g", "Food & Drinks", null, groupId = "food_and_drinks", groupName = "Food & Drinks", color = "#ff3d00", systemId = "food_and_drinks"),
+            CategoryEntity("r", "Restaurant", null, groupId = "food_and_drinks", groupName = "Food & Drinks", color = "#cccccc", systemId = "food_and_drinks__restaurant"),
+            CategoryEntity("b", "Bar", null, groupId = "food_and_drinks", groupName = "Food & Drinks", color = "#ff3d00", systemId = "food_and_drinks__bar"),
+        )))
+        assertEquals("#ff3d00", rows.getValue("r").first.color) // the badge after picking stays orange
+        assertEquals("Food & Drinks", rows.getValue("r").second)
+    }
+
     @Test fun pickerSearchListsEverythingUnderAMatchingGroup() {
         val tree = CategoryTree.build(wallet)
         // Income has no category of its own; its categories still show for "income".

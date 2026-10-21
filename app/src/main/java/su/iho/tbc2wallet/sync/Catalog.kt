@@ -6,6 +6,7 @@ import su.iho.tbc2wallet.categorize.PayeeLearner
 import su.iho.tbc2wallet.data.AccountEntity
 import su.iho.tbc2wallet.data.AppDatabase
 import su.iho.tbc2wallet.data.CategoryEntity
+import su.iho.tbc2wallet.data.CategoryUsageEntity
 import su.iho.tbc2wallet.data.LabelEntity
 import su.iho.tbc2wallet.data.LearnedEntity
 import su.iho.tbc2wallet.data.Settings
@@ -66,6 +67,7 @@ class Catalog(private val context: Context) {
         // whose Wallet id never reached this device (lost response, reinstall).
         // A transfer's category is Wallet's, not a choice made for the payee, so it isn't learned either.
         val fakeIds = dao.fakeWalletRecordIds().toSet()
+        val countedAt = System.currentTimeMillis()
         val history = api.records(from)
             .filter { it.transfer == null && it.id !in fakeIds && it.note?.startsWith(SyncWorker.FAKE_NOTE_MARKER) != true }
             .map { PayeeLearner.HistoryRecord(it.id, it.counterParty, it.category?.id, it.category?.name) }
@@ -78,6 +80,9 @@ class Catalog(private val context: Context) {
         dao.replaceLearned(learned.values.filter { it.payeeKey !in forgotten }.map {
             LearnedEntity(it.payeeKey, it.categoryId, it.categoryName, it.votes, it.totalVotes)
         })
+        // Plain counts of every record per category, for the picker's "Frequently used".
+        dao.replaceCategoryUsage(history.mapNotNull { it.categoryId }.filter { it !in settings.unknownCategoryIds }
+            .groupingBy { it }.eachCount().map { (id, n) -> CategoryUsageEntity(id, n, countedAt) })
         settings.lastLearnRefresh = System.currentTimeMillis()
     }
 
