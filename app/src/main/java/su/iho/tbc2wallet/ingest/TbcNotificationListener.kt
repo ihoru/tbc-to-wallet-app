@@ -143,13 +143,13 @@ object Ingest {
 
     /**
      * Purchases and reversals include time and balance-after, so identical content means the same
-     * one even if Android re-posts the notification. Deposits only carry a date,
-     * so the notification identity is added to keep two equal deposits apart.
+     * one even if Android re-posts the notification. Deposits and money transfers only carry a date,
+     * so the notification identity is added to keep two equal ones apart.
      */
     private fun dedupKey(p: ParsedTransaction, notificationKey: String, whenMillis: Long): String {
         val base = listOf(p.kind, p.amount.toPlainString(), p.currency, p.counterParty, p.cardLast4, p.date, p.time, p.balanceAfter)
             .joinToString("|")
-        return sha(if (p.kind != TxKind.INCOME) base else "$base|$notificationKey|$whenMillis")
+        return sha(if (p.time != null) base else "$base|$notificationKey|$whenMillis")
     }
 
     private fun recordInstant(p: ParsedTransaction, postTime: Long): Instant {
