@@ -161,6 +161,12 @@ class ReversalMatchTest {
         assertNull(Reversals.findCharge(reversal, listOf(tx("x", "4.00", "2026-10-15T20:49:00Z", kind = "INCOME"))))
     }
 
+    @Test fun moneyTransferIsNeverReversed() {
+        val transfer = tx("t", "4.00", "2026-10-15T20:49:00Z", merchant = null)
+            .copy(rawText = "Money Transfer:\n4.00 GEL\nTBC CARD VISA GOLD (***5190)\n15/10/2026")
+        assertNull(Reversals.findCharge(reversal, listOf(transfer)))
+    }
+
     @Test fun merchantIsComparedLoosely() =
         assertEquals("x", Reversals.findCharge(reversal, listOf(tx("x", "4.00", "2026-10-15T20:49:00Z", merchant = "FLT JETSHR")))?.dedupKey)
 
