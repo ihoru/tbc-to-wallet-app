@@ -192,7 +192,7 @@ abstract class AppDao {
     abstract suspend fun requeueNeedsAccount()
 
     // --- rules & caches
-    @Query("SELECT * FROM user_rules ORDER BY pattern COLLATE NOCASE, id") abstract fun observeUserRules(): Flow<List<UserRuleEntity>>
+    @Query("SELECT * FROM user_rules ORDER BY id DESC") abstract fun observeUserRules(): Flow<List<UserRuleEntity>>
     @Query("SELECT * FROM user_rules ORDER BY id") abstract suspend fun userRules(): List<UserRuleEntity>
     @Insert abstract suspend fun insertUserRule(rule: UserRuleEntity): Long
     @Update abstract suspend fun updateUserRule(rule: UserRuleEntity)
