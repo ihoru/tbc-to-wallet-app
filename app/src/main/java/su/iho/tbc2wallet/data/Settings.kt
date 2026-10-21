@@ -75,6 +75,11 @@ class Settings(context: Context) {
         get() = prefs.getLong("last_learn_refresh", 0)
         set(value) = prefs.edit().putLong("last_learn_refresh", value).apply()
 
+    /** Whether the category usage counts behind "Frequently used" have been filled from history. */
+    var categoryUsageCounted: Boolean
+        get() = prefs.getBoolean("category_usage_counted", false)
+        set(value) = prefs.edit().putBoolean("category_usage_counted", value).apply()
+
     /** Wallet's "Unknown income / Unknown expense / Uncategorized" category ids. */
     var unknownCategoryIds: Set<String>
         get() = prefs.getStringSet("unknown_category_ids", emptySet()) ?: emptySet()

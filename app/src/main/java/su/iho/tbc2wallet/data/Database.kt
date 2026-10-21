@@ -226,6 +226,8 @@ abstract class AppDao {
     @Insert abstract suspend fun insertLearned(items: List<LearnedEntity>)
     @Transaction open suspend fun replaceLearned(items: List<LearnedEntity>) { clearLearned(); insertLearned(items) }
 
+    @Query("SELECT MIN(receivedAt) FROM transactions WHERE status IN ('PENDING','NEEDS_ACCOUNT','FAILED')")
+    abstract suspend fun oldestQueuedReceivedAt(): Long?
     @Query("DELETE FROM category_usage") abstract suspend fun clearCategoryUsage()
     @Insert abstract suspend fun insertCategoryUsage(items: List<CategoryUsageEntity>)
     @Transaction open suspend fun replaceCategoryUsage(items: List<CategoryUsageEntity>) { clearCategoryUsage(); insertCategoryUsage(items) }
