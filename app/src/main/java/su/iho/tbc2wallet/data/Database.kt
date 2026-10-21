@@ -56,6 +56,7 @@ data class TransactionEntity(
     val receivedAt: Long,
     @ColumnInfo(defaultValue = "0") val isFake: Boolean = false,    // typed in by hand from the Activity tab to test parsing and rules
     val reversesKey: String? = null,    // a reversal's link to the charge it cancels
+    @ColumnInfo(defaultValue = "0") val countedInUsage: Boolean = false,    // its Wallet record is already in category_usage
 )
 
 @Entity(tableName = "user_rules")
@@ -89,15 +90,11 @@ data class WalletRuleEntity(
     val fromAccountId: String?,
 )
 
-/**
- * How many of your Wallet records (last 12 months) sit in each category, counted at
- * [countedUntil] (epoch millis), when the history was last read.
- */
+/** How many of your Wallet records (last 12 months) sit in each category, as of the last history read. */
 @Entity(tableName = "category_usage")
 data class CategoryUsageEntity(
     @PrimaryKey val categoryId: String,
     val uses: Int,
-    val countedUntil: Long,
 )
 
 @Entity(tableName = "learned")
@@ -226,16 +223,24 @@ abstract class AppDao {
     @Insert abstract suspend fun insertLearned(items: List<LearnedEntity>)
     @Transaction open suspend fun replaceLearned(items: List<LearnedEntity>) { clearLearned(); insertLearned(items) }
 
-    @Query("SELECT MIN(receivedAt) FROM transactions WHERE status IN ('PENDING','NEEDS_ACCOUNT','FAILED')")
-    abstract suspend fun oldestQueuedReceivedAt(): Long?
     @Query("DELETE FROM category_usage") abstract suspend fun clearCategoryUsage()
     @Insert abstract suspend fun insertCategoryUsage(items: List<CategoryUsageEntity>)
-    @Transaction open suspend fun replaceCategoryUsage(items: List<CategoryUsageEntity>) { clearCategoryUsage(); insertCategoryUsage(items) }
+    @Query("UPDATE transactions SET countedInUsage = 0") abstract suspend fun clearCountedInUsage()
+    @Query("UPDATE transactions SET countedInUsage = 1 WHERE walletRecordId IN (:recordIds)")
+    abstract suspend fun markCountedInUsage(recordIds: List<String>)
+
+    /** New usage counts, and which of this app's records they already include (so they aren't counted twice). */
+    @Transaction open suspend fun replaceCategoryUsage(items: List<CategoryUsageEntity>, countedRecordIds: List<String>) {
+        clearCategoryUsage()
+        insertCategoryUsage(items)
+        clearCountedInUsage()
+        countedRecordIds.chunked(500).forEach { markCountedInUsage(it) }  // under SQLite's bound-variable limit
+    }
 
     @Query("SELECT * FROM categories ORDER BY parentName, name") abstract fun observeCategories(): Flow<List<CategoryEntity>>
     /**
      * Category ids by how often you use them, most used first: your Wallet history as last counted,
-     * plus the records this app has sent since then. All of them; the caller drops stale ids first.
+     * plus the records this app has sent that weren't in it. All of them; the caller drops stale ids first.
      */
     @Query("""SELECT categoryId FROM (
             SELECT categoryId, uses FROM category_usage
@@ -243,7 +248,7 @@ abstract class AppDao {
             SELECT categoryId, 1 AS uses FROM transactions
             WHERE categoryId IS NOT NULL AND isFake = 0 AND status != 'DELETED' AND walletRecordId IS NOT NULL
                 AND (categorySource IS NULL OR categorySource != 'TRANSFER')
-                AND receivedAt > COALESCE((SELECT MAX(countedUntil) FROM category_usage), 0)
+                AND countedInUsage = 0
         ) GROUP BY categoryId ORDER BY SUM(uses) DESC, categoryId""")
     abstract fun observeFrequentCategoryIds(): Flow<List<String>>
     @Query("DELETE FROM categories") abstract suspend fun clearCategories()
@@ -295,13 +300,14 @@ abstract class AppDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.addColumnIfMissing("transactions", "isFake", "INTEGER NOT NULL DEFAULT 0")
                 db.addColumnIfMissing("transactions", "reversesKey", "TEXT")
+                db.addColumnIfMissing("transactions", "countedInUsage", "INTEGER NOT NULL DEFAULT 0")
                 db.addColumnIfMissing("user_rules", "labelIds", "TEXT NOT NULL DEFAULT ''")
                 db.addColumnIfMissing("user_rules", "labelNames", "TEXT NOT NULL DEFAULT ''")
                 db.addColumnIfMissing("user_rules", "transferAccountId", "TEXT")
                 db.addColumnIfMissing("user_rules", "transferAccountName", "TEXT")
                 for (col in listOf("parentId", "groupId", "groupName", "color", "systemId")) db.addColumnIfMissing("categories", col, "TEXT")
                 db.execSQL("CREATE TABLE IF NOT EXISTS labels (id TEXT NOT NULL, name TEXT NOT NULL, PRIMARY KEY(id))")
-                db.execSQL("CREATE TABLE IF NOT EXISTS category_usage (categoryId TEXT NOT NULL, uses INTEGER NOT NULL, countedUntil INTEGER NOT NULL, PRIMARY KEY(categoryId))")
+                db.execSQL("CREATE TABLE IF NOT EXISTS category_usage (categoryId TEXT NOT NULL, uses INTEGER NOT NULL, PRIMARY KEY(categoryId))")
             }
         }
 
