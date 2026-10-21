@@ -2,14 +2,12 @@ package su.iho.tbc2wallet
 
 import android.Manifest
 import android.content.ClipData
-import android.content.ClipDescription
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
-import android.os.PersistableBundle
 import android.widget.Toast
 import android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS
 import androidx.activity.ComponentActivity
@@ -347,10 +345,8 @@ private fun TransactionCard(tx: TransactionEntity, vm: MainViewModel, onMakeRule
 private fun CopyRawTextButton(rawText: String) {
     val context = LocalContext.current
     IconButton(onClick = {
-        // Flagged sensitive so Android 13+ doesn't preview the balance and card in its copy confirmation.
-        val clip = ClipData.newPlainText("TBC notification", rawText).apply {
-            description.extras = PersistableBundle().apply { putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true) }
-        }
+        // Not flagged sensitive: keyboards and the clipboard history would show it as dots.
+        val clip = ClipData.newPlainText("TBC notification", rawText)
         context.getSystemService(ClipboardManager::class.java).setPrimaryClip(clip)
         // Android 13+ shows its own confirmation when something is copied.
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU)
