@@ -45,6 +45,13 @@ data class ParsedTransaction(
  *   29/09/2026
  *   [John Smith]
  *
+ * Outgoing money transfer (amount may also sit on the header line):
+ *   Money Transfer:
+ *   800.00 USD
+ *   TBC CARD
+ *   21/10/2026
+ *   [Recipient]
+ *
  * Reversal (a charge cancelled, usually a card check shortly after it):
  *   Reversal:
  *   4.00 GEL
@@ -60,7 +67,8 @@ object TbcNotificationParser {
     private const val AMOUNT = """([0-9][0-9,]*(?:\.\d{1,2})?)\s*([A-Z]{3})"""
 
     private val PURCHASE_AMOUNT = Regex("""^$AMOUNT$""")
-    private val DEPOSIT = Regex("""^Deposit Money:\s*$AMOUNT$""", RegexOption.IGNORE_CASE)
+    private val DEPOSIT = Regex("""^Deposit Money:\s*(?:$AMOUNT)?$""", RegexOption.IGNORE_CASE)
+    private val TRANSFER = Regex("""^Money Transfer:\s*(?:$AMOUNT)?$""", RegexOption.IGNORE_CASE)
     private val CARD = Regex("""^(.*?)\s*\(\*+(\d{4})\)$""")
     private val MERCHANT_DATETIME = Regex("""^(.*?)\s*(\d{2}/\d{2}/\d{2})\s+(\d{2}:\d{2})$""")
     private val DATE_LONG = Regex("""^(\d{2}/\d{2}/\d{4})$""")
@@ -80,7 +88,8 @@ object TbcNotificationParser {
             .map { it.trim() }
             .filter { it.isNotEmpty() }
         if (lines.isEmpty()) return null
-        return runCatching { parseReversal(lines) ?: parseDeposit(lines) ?: parsePurchase(lines) }.getOrNull()
+        return runCatching { parseReversal(lines) ?: parseDateOnly(lines, DEPOSIT, TxKind.INCOME) ?: parseDateOnly(lines, TRANSFER, TxKind.EXPENSE)
+            ?: parsePurchase(lines) }.getOrNull()
     }
 
     private fun parsePurchase(lines: List<String>): ParsedTransaction? {
@@ -150,17 +159,24 @@ object TbcNotificationParser {
         )
     }
 
-    private fun parseDeposit(lines: List<String>): ParsedTransaction? {
-        val amount = DEPOSIT.matchEntire(lines[0]) ?: return null
+    /**
+     * Deposits and money transfers: a header with the amount on it or on the next line,
+     * the account, a dd/MM/yyyy date, then an optional sender or recipient.
+     */
+    private fun parseDateOnly(lines: List<String>, header: Regex, kind: TxKind): ParsedTransaction? {
+        val head = header.matchEntire(lines[0]) ?: return null
+        var bodyStart = 1
+        val amount = if (head.groupValues[1].isNotEmpty()) head
+            else PURCHASE_AMOUNT.matchEntire(lines.getOrNull(1) ?: return null)?.also { bodyStart = 2 } ?: return null
         val dateIndex = lines.indexOfFirst { DATE_LONG.matchEntire(it) != null }
-        if (dateIndex < 0) return null
-        val accountLabel = lines.subList(1, dateIndex).joinToString(" ").ifBlank { null }
-        val sender = lines.drop(dateIndex + 1).joinToString(" ").ifBlank { null }
+        if (dateIndex < bodyStart) return null
+        val accountLabel = lines.subList(bodyStart, dateIndex).joinToString(" ").ifBlank { null }
+        val counterParty = lines.drop(dateIndex + 1).joinToString(" ").ifBlank { null }
         return ParsedTransaction(
-            kind = TxKind.INCOME,
+            kind = kind,
             amount = amount.groupValues[1].toMoney(),
             currency = amount.groupValues[2],
-            counterParty = sender,
+            counterParty = counterParty,
             accountLabel = accountLabel,
             cardLast4 = accountLabel?.let { CARD.matchEntire(it)?.groupValues?.get(2) },
             date = LocalDate.parse(lines[dateIndex], LONG_DATE),

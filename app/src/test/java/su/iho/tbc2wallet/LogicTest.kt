@@ -81,6 +81,34 @@ class ParserTest {
         assertEquals("John Smith", t.counterParty)
     }
 
+    @Test fun depositWithAmountOnNextLine() {
+        val t = TbcNotificationParser.parse("Deposit Money:\n20.00 GEL\nTBC CARD\n29/09/2026")!!
+        assertEquals(TxKind.INCOME, t.kind)
+        assertEquals(BigDecimal("20.00"), t.amount)
+        assertEquals("TBC CARD", t.accountLabel)
+    }
+
+    @Test fun moneyTransfer() {
+        val t = TbcNotificationParser.parse("Money Transfer:\n800.00 USD\nTBC CARD\n21/10/2026")!!
+        assertEquals(TxKind.EXPENSE, t.kind)
+        assertEquals(BigDecimal("800.00"), t.amount)
+        assertEquals("USD", t.currency)
+        assertEquals("TBC CARD", t.accountLabel)
+        assertNull(t.cardLast4)
+        assertNull(t.counterParty)
+        assertEquals(LocalDate.of(2026, 10, 21), t.date)
+        assertNull(t.time)
+        assertNull(t.balanceAfter)
+    }
+
+    @Test fun moneyTransferWithAmountOnHeaderAndRecipient() {
+        val t = TbcNotificationParser.parse("Money Transfer: 1,200.50 GEL\nTBC CARD VISA GOLD (***1234)\n21/10/2026\nJohn Smith")!!
+        assertEquals(TxKind.EXPENSE, t.kind)
+        assertEquals(BigDecimal("1200.50"), t.amount)
+        assertEquals("1234", t.cardLast4)
+        assertEquals("John Smith", t.counterParty)
+    }
+
     @Test fun cashbackOnlyIsNotATransaction() {
         assertNull(TbcNotificationParser.parse("You’ve received: 0.05 GEL\nIn Ertguli Piggy bank you have: 25.35 GEL"))
     }
