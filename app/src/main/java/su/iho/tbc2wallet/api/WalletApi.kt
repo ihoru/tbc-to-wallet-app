@@ -94,9 +94,10 @@ class WalletApi(private val token: String) {
     )
     /**
      * Makes the record one side of a transfer with [accountId]. pairingMode "new" has Wallet create
-     * the mirror record there, converting the amount by FX when the currencies differ.
+     * the mirror record there, converting the amount by FX when the currencies differ, unless
+     * [counterAmount] gives the exact amount there (opposite sign, that account's currency).
      */
-    @Serializable data class Transfer(val accountId: String, val pairingMode: String)
+    @Serializable data class Transfer(val accountId: String, val pairingMode: String, val counterAmount: Amount? = null)
     @Serializable data class WriteResult(
         val inputIndex: Int, val id: String? = null, val success: Boolean = false,
         val error: String? = null, val errorType: String? = null,

@@ -39,7 +39,7 @@ enum class TxStatus {
 @Entity(tableName = "transactions")
 data class TransactionEntity(
     @PrimaryKey val dedupKey: String,
-    val kind: String?,              // EXPENSE / INCOME, null when unparsed
+    val kind: String?,              // a TxKind name, null when unparsed
     val amount: String?,            // positive decimal as text
     val currency: String?,
     val counterParty: String?,
@@ -57,6 +57,8 @@ data class TransactionEntity(
     @ColumnInfo(defaultValue = "0") val isFake: Boolean = false,    // typed in by hand from the Activity tab to test parsing and rules
     val reversesKey: String? = null,    // a reversal's link to the charge it cancels
     @ColumnInfo(defaultValue = "0") val countedInUsage: Boolean = false,    // its Wallet record is already in category_usage
+    val counterAmount: String? = null,      // conversions: what arrived in counterCurrency, while amount/currency left
+    val counterCurrency: String? = null,
 )
 
 @Entity(tableName = "user_rules")
@@ -260,6 +262,7 @@ abstract class AppDao {
     @Insert abstract suspend fun insertLabels(items: List<LabelEntity>)
     @Transaction open suspend fun replaceLabels(items: List<LabelEntity>) { clearLabels(); insertLabels(items) }
 
+    @Query("SELECT * FROM accounts") abstract suspend fun accounts(): List<AccountEntity>
     @Query("SELECT * FROM accounts ORDER BY name") abstract fun observeAccounts(): Flow<List<AccountEntity>>
     @Query("DELETE FROM accounts") abstract suspend fun clearAccounts()
     @Insert abstract suspend fun insertAccounts(items: List<AccountEntity>)
@@ -274,7 +277,7 @@ data class SentAssignment(val dedupKey: String, val walletRecordId: String?, val
         LearnedEntity::class, CategoryEntity::class, AccountEntity::class, LabelEntity::class,
         CategoryUsageEntity::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -285,7 +288,7 @@ abstract class AppDatabase : RoomDatabase() {
         fun get(context: Context): AppDatabase = instance ?: synchronized(this) {
             instance ?: RulesBackup(context).let { backup ->
                 Room.databaseBuilder(context.applicationContext, AppDatabase::class.java, "tbc2wallet.db")
-                    .addMigrations(*(1..6).map(::catchUp).toTypedArray())
+                    .addMigrations(*(1..7).map(::catchUp).toTypedArray())
                     .addCallback(backup.callback)
                     .build().also { backup.watch(it); instance = it }
             }
@@ -296,11 +299,13 @@ abstract class AppDatabase : RoomDatabase() {
          * transfer rules), so a phone may be on any mix of them. Every old version jumps straight
          * to the current one and adds only what's missing.
          */
-        private fun catchUp(from: Int) = object : Migration(from, 7) {
+        private fun catchUp(from: Int) = object : Migration(from, 8) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.addColumnIfMissing("transactions", "isFake", "INTEGER NOT NULL DEFAULT 0")
                 db.addColumnIfMissing("transactions", "reversesKey", "TEXT")
                 db.addColumnIfMissing("transactions", "countedInUsage", "INTEGER NOT NULL DEFAULT 0")
+                db.addColumnIfMissing("transactions", "counterAmount", "TEXT")
+                db.addColumnIfMissing("transactions", "counterCurrency", "TEXT")
                 db.addColumnIfMissing("user_rules", "labelIds", "TEXT NOT NULL DEFAULT ''")
                 db.addColumnIfMissing("user_rules", "labelNames", "TEXT NOT NULL DEFAULT ''")
                 db.addColumnIfMissing("user_rules", "transferAccountId", "TEXT")

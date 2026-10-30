@@ -311,12 +311,20 @@ private fun TransactionCard(tx: TransactionEntity, vm: MainViewModel, onMakeRule
             } else {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        tx.counterParty ?: if (tx.kind == "INCOME") "Incoming transfer" else "Card payment",
+                        tx.counterParty ?: when (tx.kind) {
+                            "INCOME" -> "Incoming transfer"
+                            TxKind.CONVERSION.name -> "Conversion"
+                            else -> "Card payment"
+                        },
                         style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f),
                         maxLines = 1, overflow = TextOverflow.Ellipsis,
                     )
                     val sign = if (tx.kind == "EXPENSE") "−" else "+"
-                    Text("$sign${tx.amount} ${tx.currency}", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        if (tx.kind == TxKind.CONVERSION.name) "${tx.amount} ${tx.currency} → ${tx.counterAmount} ${tx.counterCurrency}"
+                        else "$sign${tx.amount} ${tx.currency}",
+                        style = MaterialTheme.typography.titleMedium,
+                    )
                 }
                 val date = tx.recordDateUtc?.let { Instant.parse(it).atZone(ZoneId.systemDefault()).format(dateFmt) }.orEmpty()
                 Text("$date · ${tx.accountLabel.orEmpty()}", style = MaterialTheme.typography.bodySmall)
@@ -389,13 +397,17 @@ private fun localDate(utc: String?): String =
     utc?.let { Instant.parse(it).atZone(ZoneId.systemDefault()).format(dateFmt) }.orEmpty()
 
 private fun categoryLine(tx: TransactionEntity): String = when (tx.categorySource) {
-    null -> "Category: decided when sent"
+    null -> if (tx.kind == TxKind.CONVERSION.name) "Transfer from your ${tx.currency} account to your ${tx.counterCurrency} one"
+        else "Category: decided when sent"
     "NONE" -> "Category: none (Wallet files it as Unknown)"
     "USER_RULE" -> "Category: ${tx.categoryName} · your rule"
     "WALLET_RULE" -> "Category: ${tx.categoryName} · Wallet rule"
     "LEARNED" -> "Category: ${tx.categoryName} · learned from history"
-    SyncWorker.TRANSFER_SOURCE ->
-        (if (tx.kind == "EXPENSE") "Transfer to " else "Transfer from ") + "${tx.categoryName} · your rule"
+    SyncWorker.TRANSFER_SOURCE -> when (tx.kind) {
+        TxKind.CONVERSION.name -> "Transfer to ${tx.categoryName} · conversion"
+        "EXPENSE" -> "Transfer to ${tx.categoryName} · your rule"
+        else -> "Transfer from ${tx.categoryName} · your rule"
+    }
     else -> "Category: ${tx.categoryName}"
 }
 

@@ -5,8 +5,11 @@ import java.time.LocalDate
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 
-/** REVERSAL: TBC released a charge it had made, often a card check; the app removes that charge. */
-enum class TxKind { EXPENSE, INCOME, REVERSAL }
+/**
+ * REVERSAL: TBC released a charge it had made, often a card check; the app removes that charge.
+ * CONVERSION: money exchanged between your own TBC accounts in two currencies; sent as a transfer.
+ */
+enum class TxKind { EXPENSE, INCOME, REVERSAL, CONVERSION }
 
 /**
  * One transaction extracted from a TBC push notification.
@@ -18,7 +21,7 @@ data class ParsedTransaction(
     val currency: String,
     /** Merchant for expenses ("Shopsy"), sender for income ("John Smith"); null if absent. */
     val counterParty: String?,
-    /** Account line as TBC shows it, e.g. "TBC CARD VISA GOLD (***1234)" or "TBC CARD". */
+    /** Account line as TBC shows it, e.g. "TBC CARD VISA GOLD (***1234)" or "TBC CARD"; for conversions, the rate line. */
     val accountLabel: String?,
     val cardLast4: String?,
     val date: LocalDate,
@@ -26,6 +29,9 @@ data class ParsedTransaction(
     val time: LocalTime?,
     /** Balance after the operation, when TBC includes it. Used for de-duplication. */
     val balanceAfter: BigDecimal?,
+    /** Conversions only: what arrived on the other side, while [amount] and [currency] are what left. */
+    val counterAmount: BigDecimal? = null,
+    val counterCurrency: String? = null,
 )
 
 /**
@@ -60,6 +66,14 @@ data class ParsedTransaction(
  *   16/10/26 00:56
  *   Balance: 4588.05 GEL
  *
+ * Currency conversion between your own accounts (no account line, date only).
+ * The first amount is what left, the second what arrived (here 104.36 GEL bought 40.00 USD):
+ *   Conversion:
+ *   104.36 GEL
+ *   40.00 USD
+ *   Rate: 2.609
+ *   30/10/2026
+ *
  * Anything else returns null and is kept in the app as "unparsed" for review.
  */
 object TbcNotificationParser {
@@ -74,6 +88,8 @@ object TbcNotificationParser {
     private val DATE_LONG = Regex("""^(\d{2}/\d{2}/\d{4})$""")
     private val BALANCE = Regex("""^Balance:\s*$AMOUNT$""", RegexOption.IGNORE_CASE)
     private val REVERSAL = Regex("""^Reversal:\s*(?:$AMOUNT)?$""", RegexOption.IGNORE_CASE)
+    private val CONVERSION = Regex("""^Conversion:\s*(?:$AMOUNT)?$""", RegexOption.IGNORE_CASE)
+    private val RATE = Regex("""^Rate:\s*[0-9.,]+$""", RegexOption.IGNORE_CASE)
     private val DATETIME = Regex("""^(\d{2}/\d{2}/\d{2})\s+(\d{2}:\d{2})$""")
     private val CASHBACK = Regex("""^(You.ve received:|In Ertguli)""", RegexOption.IGNORE_CASE)
 
@@ -88,7 +104,7 @@ object TbcNotificationParser {
             .map { it.trim() }
             .filter { it.isNotEmpty() }
         if (lines.isEmpty()) return null
-        return runCatching { parseReversal(lines) ?: parseDateOnly(lines, DEPOSIT, TxKind.INCOME) ?: parseDateOnly(lines, TRANSFER, TxKind.EXPENSE)
+        return runCatching { parseReversal(lines) ?: parseConversion(lines) ?: parseDateOnly(lines, DEPOSIT, TxKind.INCOME) ?: parseDateOnly(lines, TRANSFER, TxKind.EXPENSE)
             ?: parsePurchase(lines) }.getOrNull()
     }
 
@@ -156,6 +172,30 @@ object TbcNotificationParser {
             date = LocalDate.parse(date ?: return null, SHORT_DATE),
             time = LocalTime.parse(time, TIME),
             balanceAfter = balance?.groupValues?.get(1)?.toMoney(),
+        )
+    }
+
+    private fun parseConversion(lines: List<String>): ParsedTransaction? {
+        val head = CONVERSION.matchEntire(lines[0]) ?: return null
+        val amounts = (listOfNotNull(head.takeIf { it.groupValues[1].isNotEmpty() }) +
+            lines.drop(1).mapNotNull { PURCHASE_AMOUNT.matchEntire(it) }).take(2)
+        if (amounts.size < 2) return null
+        val (paid, received) = amounts
+        if (received.groupValues[2] == paid.groupValues[2]) return null
+        val date = lines.firstOrNull { DATE_LONG.matchEntire(it) != null } ?: return null
+        val rate = lines.firstOrNull { RATE.matchEntire(it) != null }
+        return ParsedTransaction(
+            kind = TxKind.CONVERSION,
+            amount = paid.groupValues[1].toMoney(),
+            currency = paid.groupValues[2],
+            counterParty = null,
+            accountLabel = rate,
+            cardLast4 = null,
+            date = LocalDate.parse(date, LONG_DATE),
+            time = null,
+            balanceAfter = null,
+            counterAmount = received.groupValues[1].toMoney(),
+            counterCurrency = received.groupValues[2],
         )
     }
 

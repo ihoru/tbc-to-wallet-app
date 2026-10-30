@@ -100,7 +100,7 @@ object Ingest {
             )
         } else {
             val settings = Settings(context)
-            settings.seenCurrencies = settings.seenCurrencies + parsed.currency
+            settings.seenCurrencies = settings.seenCurrencies + listOfNotNull(parsed.currency, parsed.counterCurrency)
             TransactionEntity(
                 dedupKey = if (fake) sha("FAKE|$text|$notificationKey|$whenMillis") else dedupKey(parsed, notificationKey, whenMillis),
                 kind = parsed.kind.name,
@@ -114,6 +114,8 @@ object Ingest {
                 status = TxStatus.PENDING,
                 receivedAt = System.currentTimeMillis(),
                 isFake = fake,
+                counterAmount = parsed.counterAmount?.toPlainString(),
+                counterCurrency = parsed.counterCurrency,
             )
         }
 
@@ -143,12 +145,12 @@ object Ingest {
 
     /**
      * Purchases and reversals include time and balance-after, so identical content means the same
-     * one even if Android re-posts the notification. Deposits and money transfers only carry a date,
+     * one even if Android re-posts the notification. Deposits, money transfers and conversions only carry a date,
      * so the notification identity is added to keep two equal ones apart.
      */
     private fun dedupKey(p: ParsedTransaction, notificationKey: String, whenMillis: Long): String {
         val base = listOf(p.kind, p.amount.toPlainString(), p.currency, p.counterParty, p.cardLast4, p.date, p.time, p.balanceAfter)
-            .joinToString("|")
+            .joinToString("|") + (p.counterAmount?.let { "|${it.toPlainString()}|${p.counterCurrency}" } ?: "")
         return sha(if (p.time != null) base else "$base|$notificationKey|$whenMillis")
     }
 
