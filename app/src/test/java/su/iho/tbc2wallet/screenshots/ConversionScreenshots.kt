@@ -44,17 +44,17 @@ class ConversionScreenshots {
         val dao = db.dao()
         val now = System.currentTimeMillis()
         dao.insertIfNew(TransactionEntity(
-            dedupKey = "c1", kind = "CONVERSION", amount = "40.00", currency = "USD", counterParty = null,
+            dedupKey = "c1", kind = "CONVERSION", amount = "104.36", currency = "GEL", counterParty = null,
             accountLabel = "Rate: 2.609", cardLast4 = null, recordDateUtc = "2026-10-30T04:50:00Z",
             rawText = "Conversion:\n104.36 GEL\n40.00 USD\nRate: 2.609\n30/10/2026", status = TxStatus.SENT,
-            walletRecordId = "r1", categorySource = SyncWorker.TRANSFER_SOURCE, categoryName = "TBC GEL",
-            receivedAt = now, counterAmount = "104.36", counterCurrency = "GEL",
+            walletRecordId = "r1", categorySource = SyncWorker.TRANSFER_SOURCE, categoryName = "TBC USD",
+            receivedAt = now, counterAmount = "40.00", counterCurrency = "USD",
         ))
         dao.insertIfNew(TransactionEntity(
-            dedupKey = "c2", kind = "CONVERSION", amount = "100.00", currency = "EUR", counterParty = null,
+            dedupKey = "c2", kind = "CONVERSION", amount = "311.20", currency = "GEL", counterParty = null,
             accountLabel = "Rate: 3.112", cardLast4 = null, recordDateUtc = "2026-10-29T09:12:00Z",
             rawText = "Conversion:\n311.20 GEL\n100.00 EUR\nRate: 3.112\n29/10/2026", status = TxStatus.NEEDS_ACCOUNT,
-            receivedAt = now - 1, counterAmount = "311.20", counterCurrency = "GEL",
+            receivedAt = now - 1, counterAmount = "100.00", counterCurrency = "EUR",
         ))
         dao.insertIfNew(TransactionEntity(
             dedupKey = "t1", kind = "EXPENSE", amount = "42.10", currency = "GEL", counterParty = "Shopsy",

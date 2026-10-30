@@ -112,10 +112,10 @@ class ParserTest {
     @Test fun conversion() {
         val t = TbcNotificationParser.parse("Conversion:\n104.36 GEL\n40.00 USD\nRate: 2.609\n30/10/2026")!!
         assertEquals(TxKind.CONVERSION, t.kind)
-        assertEquals(BigDecimal("40.00"), t.amount)
-        assertEquals("USD", t.currency)
-        assertEquals(BigDecimal("104.36"), t.counterAmount)
-        assertEquals("GEL", t.counterCurrency)
+        assertEquals(BigDecimal("104.36"), t.amount)
+        assertEquals("GEL", t.currency)
+        assertEquals(BigDecimal("40.00"), t.counterAmount)
+        assertEquals("USD", t.counterCurrency)
         assertEquals("Rate: 2.609", t.accountLabel)
         assertNull(t.counterParty)
         assertEquals(LocalDate.of(2026, 10, 30), t.date)
@@ -124,8 +124,8 @@ class ParserTest {
 
     @Test fun conversionWithFirstAmountOnHeader() {
         val t = TbcNotificationParser.parse("Conversion: 1,043.60 GEL\n400.00 USD\nRate: 2.609\n30/10/2026")!!
-        assertEquals(BigDecimal("400.00"), t.amount)
-        assertEquals(BigDecimal("1043.60"), t.counterAmount)
+        assertEquals(BigDecimal("1043.60"), t.amount)
+        assertEquals(BigDecimal("400.00"), t.counterAmount)
     }
 
     @Test fun conversionNeedsTwoCurrencies() {
@@ -373,12 +373,12 @@ class WalletJsonTest {
 
     @Test fun conversionTransferCarriesCounterAmount() {
         val record = WalletApi.NewRecord(
-            accountId = "acc-usd", amount = WalletApi.Amount(-40.0, "USD"), recordDate = "2026-10-30T08:00:00Z",
-            transfer = WalletApi.Transfer("acc-gel", pairingMode = "new", counterAmount = WalletApi.Amount(104.36, "GEL")),
+            accountId = "acc-gel", amount = WalletApi.Amount(-104.36, "GEL"), recordDate = "2026-10-30T08:00:00Z",
+            transfer = WalletApi.Transfer("acc-usd", pairingMode = "new", counterAmount = WalletApi.Amount(40.0, "USD")),
         )
         val json = WalletApi.json.encodeToString(WalletApi.NewRecord.serializer(), record)
         assertTrue(json, json.contains(
-            """"transfer":{"accountId":"acc-gel","pairingMode":"new","counterAmount":{"value":104.36,"currencyCode":"GEL"}}"""))
+            """"transfer":{"accountId":"acc-usd","pairingMode":"new","counterAmount":{"value":40.0,"currencyCode":"USD"}}"""))
     }
 }
 

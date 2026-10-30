@@ -67,7 +67,7 @@ data class ParsedTransaction(
  *   Balance: 4588.05 GEL
  *
  * Currency conversion between your own accounts (no account line, date only).
- * The first amount is what arrived, the second what left:
+ * The first amount is what left, the second what arrived (here 104.36 GEL bought 40.00 USD):
  *   Conversion:
  *   104.36 GEL
  *   40.00 USD
@@ -180,7 +180,7 @@ object TbcNotificationParser {
         val amounts = (listOfNotNull(head.takeIf { it.groupValues[1].isNotEmpty() }) +
             lines.drop(1).mapNotNull { PURCHASE_AMOUNT.matchEntire(it) }).take(2)
         if (amounts.size < 2) return null
-        val (received, paid) = amounts
+        val (paid, received) = amounts
         if (received.groupValues[2] == paid.groupValues[2]) return null
         val date = lines.firstOrNull { DATE_LONG.matchEntire(it) != null } ?: return null
         val rate = lines.firstOrNull { RATE.matchEntire(it) != null }
