@@ -135,6 +135,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
             fakesDeferred = true
             null
         }
+        val accounts = dao.accounts().associateBy { it.id }
         val missingAccounts = mutableSetOf<String>()
         val ready = mutableListOf<Pair<TransactionEntity, WalletApi.NewRecord>>()
         var sent = 0
@@ -152,6 +153,35 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
             }
             if (tx.isFake && fakesDeferred) continue
             val kind = TxKind.valueOf(tx.kind!!)
+            if (kind == TxKind.CONVERSION) {
+                // Leaves the account for its currency and arrives in the one for the counter currency:
+                // a transfer between them with both exact amounts, no category and no rules.
+                val toCurrency = tx.counterCurrency!!
+                val toId = settings.accountFor(toCurrency)
+                if (toId == null) {
+                    missingAccounts += toCurrency
+                    if (tx.status != TxStatus.NEEDS_ACCOUNT) dao.upsertTx(tx.copy(status = TxStatus.NEEDS_ACCOUNT))
+                    continue
+                }
+                val toName = accounts[toId]?.name ?: toId
+                if (toId == accountId) {
+                    val error = "$currency and $toCurrency both go to $toName, so this conversion can't be a transfer. " +
+                        "Map one of them to another account in Settings, then retry."
+                    dao.upsertTx(tx.copy(status = TxStatus.FAILED, error = error))
+                    failed++; lastError = error
+                    continue
+                }
+                ready += tx.copy(categoryId = null, categoryName = toName, categorySource = TRANSFER_SOURCE) to WalletApi.NewRecord(
+                    accountId = accountId,
+                    amount = WalletApi.Amount(tx.amount!!.toBigDecimal().negate().toDouble(), currency),
+                    recordDate = tx.recordDateUtc!!,
+                    note = FAKE_NOTE_MARKER.takeIf { tx.isFake },
+                    labelIds = listOfNotNull(fakeLabel.takeIf { tx.isFake }).ifEmpty { null },
+                    transfer = WalletApi.Transfer(toId, pairingMode = "new",
+                        counterAmount = WalletApi.Amount(tx.counterAmount!!.toBigDecimal().toDouble(), toCurrency)),
+                )
+                continue
+            }
             val decision = resolver.resolve(kind, tx.counterParty, accountId)
             if (decision.transferAccountId == accountId) {
                 // Wallet can't put both sides of a transfer in one account, so it would reject this.

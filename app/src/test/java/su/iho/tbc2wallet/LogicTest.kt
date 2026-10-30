@@ -109,6 +109,30 @@ class ParserTest {
         assertEquals("John Smith", t.counterParty)
     }
 
+    @Test fun conversion() {
+        val t = TbcNotificationParser.parse("Conversion:\n104.36 GEL\n40.00 USD\nRate: 2.609\n30/10/2026")!!
+        assertEquals(TxKind.CONVERSION, t.kind)
+        assertEquals(BigDecimal("40.00"), t.amount)
+        assertEquals("USD", t.currency)
+        assertEquals(BigDecimal("104.36"), t.counterAmount)
+        assertEquals("GEL", t.counterCurrency)
+        assertEquals("Rate: 2.609", t.accountLabel)
+        assertNull(t.counterParty)
+        assertEquals(LocalDate.of(2026, 10, 30), t.date)
+        assertNull(t.time)
+    }
+
+    @Test fun conversionWithFirstAmountOnHeader() {
+        val t = TbcNotificationParser.parse("Conversion: 1,043.60 GEL\n400.00 USD\nRate: 2.609\n30/10/2026")!!
+        assertEquals(BigDecimal("400.00"), t.amount)
+        assertEquals(BigDecimal("1043.60"), t.counterAmount)
+    }
+
+    @Test fun conversionNeedsTwoCurrencies() {
+        assertNull(TbcNotificationParser.parse("Conversion:\n104.36 GEL\n30/10/2026"))
+        assertNull(TbcNotificationParser.parse("Conversion:\n104.36 GEL\n104.36 GEL\n30/10/2026"))
+    }
+
     @Test fun cashbackOnlyIsNotATransaction() {
         assertNull(TbcNotificationParser.parse("You’ve received: 0.05 GEL\nIn Ertguli Piggy bank you have: 25.35 GEL"))
     }
@@ -345,6 +369,16 @@ class WalletJsonTest {
         val json = WalletApi.json.encodeToString(WalletApi.NewRecord.serializer(), record)
         assertTrue(json, json.contains(""""transfer":{"accountId":"acc-usd","pairingMode":"new"}"""))
         assertTrue(json, !json.contains("categoryId"))
+    }
+
+    @Test fun conversionTransferCarriesCounterAmount() {
+        val record = WalletApi.NewRecord(
+            accountId = "acc-usd", amount = WalletApi.Amount(-40.0, "USD"), recordDate = "2026-10-30T08:00:00Z",
+            transfer = WalletApi.Transfer("acc-gel", pairingMode = "new", counterAmount = WalletApi.Amount(104.36, "GEL")),
+        )
+        val json = WalletApi.json.encodeToString(WalletApi.NewRecord.serializer(), record)
+        assertTrue(json, json.contains(
+            """"transfer":{"accountId":"acc-gel","pairingMode":"new","counterAmount":{"value":104.36,"currencyCode":"GEL"}}"""))
     }
 }
 

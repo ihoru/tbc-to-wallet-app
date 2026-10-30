@@ -30,6 +30,8 @@ object RecordUpdater {
         val tx = dao.tx(dedupKey) ?: return Outcome.NotSent
         val recordId = tx.walletRecordId
         if (tx.status != TxStatus.SENT || recordId == null || tx.kind == null) return Outcome.NotSent
+        // A conversion is a transfer between your own accounts; rules don't apply to it.
+        if (tx.kind == TxKind.CONVERSION.name) return Outcome.NoRuleMatches
         val decision = SyncWorker.buildResolver(dao)
             .resolve(TxKind.valueOf(tx.kind), tx.counterParty, tx.currency?.let { settings.accountFor(it) })
         if (decision.source != CategorySource.USER_RULE) return Outcome.NoRuleMatches
