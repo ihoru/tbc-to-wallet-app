@@ -25,6 +25,7 @@ import java.security.MessageDigest
 import java.time.Instant
 import java.time.LocalTime
 import java.time.ZoneId
+import java.time.temporal.ChronoUnit
 
 /**
  * Receives every notification on the phone (after you grant "Notification access")
@@ -154,13 +155,23 @@ object Ingest {
         return sha(if (p.time != null) base else "$base|$notificationKey|$whenMillis")
     }
 
-    private fun recordInstant(p: ParsedTransaction, postTime: Long): Instant {
-        p.time?.let { return p.date.atTime(it).atZone(BANK_ZONE).toInstant() }
-        // Date-only: use the moment the notification arrived if it's the same day, else noon.
-        val posted = Instant.ofEpochMilli(postTime).atZone(BANK_ZONE)
-        return if (posted.toLocalDate() == p.date) posted.withNano(0).toInstant()
-        else p.date.atTime(LocalTime.NOON).atZone(BANK_ZONE).toInstant()
+    /**
+     * Never later than [now]: Wallet rejects records more than a day ahead, and a bank's own date
+     * can run ahead (e.g. a weekend transfer dated to the next business day).
+     */
+    internal fun recordInstant(p: ParsedTransaction, postTime: Long, now: Instant = Instant.now()): Instant {
+        val parsed = p.time?.let { p.date.atTime(it).atZone(BANK_ZONE).toInstant() } ?: run {
+            // Date-only: use the moment the notification arrived if it's the same day, else noon.
+            val posted = Instant.ofEpochMilli(postTime).atZone(BANK_ZONE)
+            if (posted.toLocalDate() == p.date) posted.withNano(0).toInstant()
+            else p.date.atTime(LocalTime.NOON).atZone(BANK_ZONE).toInstant()
+        }
+        return notAfter(parsed, now)
     }
+
+    /** [instant], or [now] (to the second) when it is in the future. */
+    fun notAfter(instant: Instant, now: Instant = Instant.now()): Instant =
+        if (instant.isAfter(now)) now.truncatedTo(ChronoUnit.SECONDS) else instant
 
     private fun sha(s: String): String =
         MessageDigest.getInstance("SHA-256").digest(s.toByteArray()).joinToString("") { "%02x".format(it) }.take(32)
