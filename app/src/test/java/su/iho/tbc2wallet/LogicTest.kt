@@ -21,6 +21,7 @@ import su.iho.tbc2wallet.data.CategoryEntity
 import su.iho.tbc2wallet.data.displayName
 import su.iho.tbc2wallet.data.TransactionEntity
 import su.iho.tbc2wallet.data.TxStatus
+import su.iho.tbc2wallet.ingest.Ingest
 import su.iho.tbc2wallet.ingest.Reversals
 import su.iho.tbc2wallet.sync.RuleBackfill
 import su.iho.tbc2wallet.parse.TbcNotificationParser
@@ -552,5 +553,31 @@ class RuleBackfillTest {
         assertEquals("Wolt", RuleBackfill.searchText(rule(" Wolt ")))
         assertNull(RuleBackfill.searchText(rule("1234", MatchType.EXACT)))
         assertEquals("expense", RuleBackfill.recordType(rule("x", applies = AppliesTo.EXPENSE)))
+    }
+}
+
+class RecordDateTest {
+    private val now = java.time.Instant.parse("2026-11-07T08:05:34.123Z") // 12:05 in Tbilisi
+
+    @Test fun pastDateIsKept() {
+        val p = TbcNotificationParser.parse("42.10 GEL\nTBC CARD (***1234)\nShopsy 06/11/26 23:28\nBalance: 1.00 GEL")!!
+        assertEquals("2026-11-06T19:28:00Z", Ingest.recordInstant(p, now.toEpochMilli(), now).toString())
+    }
+
+    @Test fun futureDateOnlyBecomesNow() {
+        // A weekend transfer TBC dates to Monday: Wallet refuses records over a day ahead.
+        val p = TbcNotificationParser.parse("Money Transfer: 30.00 GEL\nTBC CARD\n09/11/2026\nJohn Smith")!!
+        assertEquals("2026-11-07T08:05:34Z", Ingest.recordInstant(p, now.toEpochMilli(), now).toString())
+    }
+
+    @Test fun futureTimeTodayBecomesNow() {
+        val p = TbcNotificationParser.parse("42.10 GEL\nTBC CARD (***1234)\nShopsy 07/11/26 18:00\nBalance: 1.00 GEL")!!
+        assertEquals("2026-11-07T08:05:34Z", Ingest.recordInstant(p, now.toEpochMilli(), now).toString())
+    }
+
+    @Test fun notAfterOnlyMovesFutureInstants() {
+        val past = java.time.Instant.parse("2026-11-01T10:00:00Z")
+        assertEquals(past, Ingest.notAfter(past, now))
+        assertEquals("2026-11-07T08:05:34Z", Ingest.notAfter(java.time.Instant.parse("2026-11-09T08:00:00Z"), now).toString())
     }
 }

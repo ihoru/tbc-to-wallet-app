@@ -22,8 +22,10 @@ import su.iho.tbc2wallet.data.Settings
 import su.iho.tbc2wallet.data.TransactionEntity
 import su.iho.tbc2wallet.data.TxStatus
 import su.iho.tbc2wallet.data.toUserRule
+import su.iho.tbc2wallet.ingest.Ingest
 import su.iho.tbc2wallet.ingest.Notifier
 import su.iho.tbc2wallet.parse.TxKind
+import java.time.Instant
 import java.util.concurrent.TimeUnit
 
 /**
@@ -143,7 +145,11 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         var failed = 0
         var lastError = ""
 
-        for (tx in queue) {
+        val now = Instant.now()
+        for (queued in queue) {
+            // Wallet rejects future dates; this also fixes ones saved before ingest clamped them.
+            val tx = queued.recordDateUtc
+                ?.let { queued.copy(recordDateUtc = Ingest.notAfter(Instant.parse(it), now).toString()) } ?: queued
             val currency = tx.currency ?: continue
             val accountId = settings.accountFor(currency)
             if (accountId == null) {
