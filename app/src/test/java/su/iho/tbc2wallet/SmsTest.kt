@@ -55,6 +55,18 @@ class SmsParserTest {
         assertEquals("USD", t.counterCurrency)
     }
 
+    @Test fun cardPurchaseSms() {
+        val t = TbcNotificationParser.parse("72.03GEL\n(*5190)\nWILDBERRIES\nBalance: 7017.87GEL \n \n12/11/26 16:43")!!
+        assertEquals(TxKind.EXPENSE, t.kind)
+        assertEquals(BigDecimal("72.03"), t.amount)
+        assertEquals("GEL", t.currency)
+        assertEquals("WILDBERRIES", t.counterParty)
+        assertEquals("5190", t.cardLast4)
+        assertEquals(LocalDate.of(2026, 11, 12), t.date)
+        assertEquals(LocalTime.of(16, 43), t.time)
+        assertEquals(BigDecimal("7017.87"), t.balanceAfter)
+    }
+
     @Test fun mobileBalanceRecharge() {
         val t = TbcNotificationParser.parse("Mobile Balance Recharge\n35.00GEL\nAccount refill (magti)\nID:591006815\n12/11/2026")!!
         assertEquals(TxKind.EXPENSE, t.kind)

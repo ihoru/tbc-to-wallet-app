@@ -85,6 +85,14 @@ data class ParsedTransaction(
  *   TBC CARD
  *   12/09/2026
  *
+ * Card purchase by SMS: no space before the currency, the card alone in brackets,
+ * the merchant and the date on lines of their own:
+ *   72.03GEL
+ *   (*5190)
+ *   WILDBERRIES
+ *   Balance: 7017.87GEL
+ *   12/11/26 16:43
+ *
  * Mobile top-up (the amount may have no space before the currency):
  *   Mobile Balance Recharge
  *   35.00GEL
@@ -151,6 +159,7 @@ object TbcNotificationParser {
         var card: MatchResult? = null
         var merchantDate: MatchResult? = null
         var balance: MatchResult? = null
+        var merchant: String? = null        // SMS: the merchant on its own line
         for (line in lines.drop(1)) {
             if (CASHBACK.containsMatchIn(line)) break // everything after is loyalty info
             when {
@@ -158,18 +167,21 @@ object TbcNotificationParser {
                 merchantDate == null && MERCHANT_DATETIME.matchEntire(line) != null ->
                     merchantDate = MERCHANT_DATETIME.matchEntire(line)
                 balance == null && BALANCE.matchEntire(line) != null -> balance = BALANCE.matchEntire(line)
+                merchant == null -> merchant = line
             }
         }
-        val md = merchantDate ?: return null
+        // A bare date line also matches MERCHANT_DATETIME, with a blank merchant; the merchant then sits on its own line.
+        val (payee, date, time) = merchantDate?.let { Triple(it.groupValues[1].ifBlank { merchant }, it.groupValues[2], it.groupValues[3]) }
+            ?: return null
         return ParsedTransaction(
             kind = TxKind.EXPENSE,
             amount = amount.groupValues[1].toMoney(),
             currency = amount.groupValues[2],
-            counterParty = md.groupValues[1].ifBlank { null },
+            counterParty = payee,
             accountLabel = card?.value,
             cardLast4 = card?.groupValues?.get(2),
-            date = LocalDate.parse(md.groupValues[2], SHORT_DATE),
-            time = LocalTime.parse(md.groupValues[3], TIME),
+            date = LocalDate.parse(date, SHORT_DATE),
+            time = LocalTime.parse(time, TIME),
             balanceAfter = balance?.groupValues?.get(1)?.toMoney(),
         )
     }
