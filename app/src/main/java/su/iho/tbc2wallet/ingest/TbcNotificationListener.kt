@@ -126,7 +126,12 @@ object Ingest {
         }
 
         // The same transaction already came in by the other source (push vs SMS): keep that one only.
-        if (entity.kind != null && dao.tx(entity.dedupKey) == null) {
+        val existing = dao.tx(entity.dedupKey)
+        if (existing != null && existing.source != source && existing.alsoVia == null && !fake) {
+            // Identical text both ways (e.g. a purchase): same key, so just mark the pair.
+            dao.setAlsoVia(existing.dedupKey, source)
+        }
+        if (entity.kind != null && existing == null) {
             val window = Twins.WINDOW.toMillis()
             val other = if (source == TxSource.SMS) TxSource.PUSH else TxSource.SMS
             val twin = Twins.find(entity, dao.twinCandidates(other, entity.receivedAt - window, entity.receivedAt + window))

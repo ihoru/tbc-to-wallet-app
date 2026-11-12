@@ -61,6 +61,16 @@ class SmsIngestTest {
         assertEquals(TxSource.SMS, rows().single().alsoVia)
     }
 
+    @Test fun identicalPurchaseBothWaysIsPairedThenANewOneStays() = runBlocking {
+        val buy = "5.00 GEL\nTBC CARD VISA GOLD (***1234)\nCoffee Lab 12/11/26 11:20\nBalance: 100.00 GEL"
+        Ingest.handle(app, buy, "push-1", now, now)
+        Ingest.handle(app, buy, "sms:TBC SMS", now, now, source = TxSource.SMS)
+        assertEquals(TxSource.SMS, rows().single().alsoVia)
+        val next = "5.00 GEL\nTBC CARD VISA GOLD (***1234)\nCoffee Lab 12/11/26 11:22\nBalance: 95.00 GEL"
+        Ingest.handle(app, next, "sms:TBC SMS", now + 120_000, now + 120_000, source = TxSource.SMS)
+        assertEquals(2, rows().size)
+    }
+
     @Test fun twoEqualSmsAreTwoTransactions() = runBlocking {
         val text = "Cash Deposit: 500.00 USD\nTBC CARD\n12/11/2026"
         Ingest.handle(app, text, "sms:TBC SMS", now, now, source = TxSource.SMS)
