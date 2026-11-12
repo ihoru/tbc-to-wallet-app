@@ -53,7 +53,6 @@ class TbcNotificationListener : NotificationListenerService() {
             // The SMS app's notification for "TBC SMS" looks alike; SMS are read directly by TbcSmsReceiver.
             (title.equals("TBC", true) || title.startsWith("TBC ", true)) &&
                 sbn.packageName != android.provider.Telephony.Sms.getDefaultSmsPackage(this) &&
-                !TbcSmsReceiver.isTbcSender(title, settings.smsSenders) &&
                 TbcNotificationParser.parse(text) != null
         }
         if (!isTbc) return
@@ -133,6 +132,8 @@ object Ingest {
             val twin = Twins.find(entity, dao.twinCandidates(other, entity.receivedAt - window, entity.receivedAt + window))
             if (twin != null) {
                 dao.setAlsoVia(twin.dedupKey, source)
+                // Keep its key, hidden, so a re-post of this copy is ignored too; alsoVia keeps it out of pairing.
+                dao.insertIfNew(entity.copy(status = TxStatus.DELETED, alsoVia = twin.source))
                 Log.d("TbcIngest", "duplicate of ${twin.dedupKey} via $source, dropped")
                 return@withLock
             }

@@ -115,6 +115,17 @@ class TwinsTest {
         assertEquals("p", Twins.find(sms, listOf(tx("p", TxSource.PUSH, 0, amount = "60", kind = "EXPENSE")))?.dedupKey)
     }
 
+    @Test fun anotherMerchantOrTimeIsNotATwin() {
+        val sms = tx("sms", TxSource.SMS, 0, kind = "EXPENSE").copy(counterParty = "Shopsy", recordDateUtc = "2026-11-12T08:00:00Z")
+        val push = tx("p", TxSource.PUSH, 0, kind = "EXPENSE").copy(counterParty = "SHOPSY", recordDateUtc = "2026-11-12T08:00:00Z")
+        assertEquals("p", Twins.find(sms, listOf(push))?.dedupKey)
+        assertNull(Twins.find(sms, listOf(push.copy(counterParty = "Coffee Lab"))))
+        assertNull(Twins.find(sms, listOf(push.copy(recordDateUtc = "2026-11-12T07:20:00Z"))))
+        // Incoming money: the push names the sender, the SMS a description; they still pair.
+        val income = tx("i", TxSource.SMS, 0).copy(counterParty = "personal transfer")
+        assertEquals("p", Twins.find(income, listOf(tx("p", TxSource.PUSH, 0).copy(counterParty = "John Smith")))?.dedupKey)
+    }
+
     @Test fun conversionNeedsTheSameOtherSide() {
         val sms = tx("sms", TxSource.SMS, 0, amount = "2598.00", kind = "CONVERSION", counterAmount = "1000.00", counterCurrency = "USD")
         assertNull(Twins.find(sms, listOf(sms.copy(dedupKey = "p", source = TxSource.PUSH, counterAmount = "999.00"))))

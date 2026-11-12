@@ -201,9 +201,16 @@ abstract class AppDao {
     @Query("SELECT status FROM transactions WHERE dedupKey = :key")
     abstract suspend fun statusOf(key: String): TxStatus?
 
-    /** Saves [tx], but a row you deleted while it was being sent stays deleted. */
+    @Query("SELECT alsoVia FROM transactions WHERE dedupKey = :key")
+    abstract suspend fun alsoViaOf(key: String): String?
+
+    /**
+     * Saves [tx], but a row you deleted while it was being sent stays deleted, and a twin that
+     * arrived by the other source meanwhile stays paired.
+     */
     @Transaction open suspend fun upsertTx(tx: TransactionEntity) {
-        upsertRaw(if (statusOf(tx.dedupKey) == TxStatus.DELETED) tx.copy(status = TxStatus.DELETED) else tx)
+        val kept = tx.copy(alsoVia = alsoViaOf(tx.dedupKey) ?: tx.alsoVia)
+        upsertRaw(if (statusOf(tx.dedupKey) == TxStatus.DELETED) kept.copy(status = TxStatus.DELETED) else kept)
     }
 
     @Query("UPDATE transactions SET status = :status, error = NULL WHERE dedupKey = :key")
