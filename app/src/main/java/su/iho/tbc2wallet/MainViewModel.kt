@@ -119,6 +119,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setTbcPackage(pkg: String) { settings.tbcPackage = pkg; _settingsVersion.value++ }
 
+    fun setSmsSenders(text: String) { settings.smsSenders = text.split(',', '\n'); _settingsVersion.value++ }
+
     fun syncNow() = SyncWorker.enqueue(getApplication())
 
     fun retry(tx: TransactionEntity) = viewModelScope.launch {

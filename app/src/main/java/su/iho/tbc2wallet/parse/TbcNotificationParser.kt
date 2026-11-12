@@ -74,6 +74,25 @@ data class ParsedTransaction(
  *   Rate: 2.609
  *   30/10/2026
  *
+ * The same transactions can also arrive as SMS from "TBC SMS". Purchases and conversions read like the
+ * push; incoming money and cash deposits have SMS-only headers:
+ *   Received Amount: 60.00 GEL
+ *   GE61TB****0007
+ *   2026/11/12 11:24:26
+ *   Description: personal transfer
+ *
+ *   Cash Deposit: 500.00 USD
+ *   TBC CARD
+ *   12/09/2026
+ *
+ * Mobile top-up (the amount may have no space before the currency):
+ *   Mobile Balance Recharge
+ *   35.00GEL
+ *   Account refill (magti)
+ *   ID:591006815
+ *   12/11/2026
+ *
+ * Login codes, payment confirmation codes and new-device alerts are [isNoise] and never stored.
  * Anything else returns null and is kept in the app as "unparsed" for review.
  */
 object TbcNotificationParser {
@@ -91,11 +110,29 @@ object TbcNotificationParser {
     private val CONVERSION = Regex("""^Conversion:\s*(?:$AMOUNT)?$""", RegexOption.IGNORE_CASE)
     private val RATE = Regex("""^Rate:\s*[0-9.,]+$""", RegexOption.IGNORE_CASE)
     private val DATETIME = Regex("""^(\d{2}/\d{2}/\d{2})\s+(\d{2}:\d{2})$""")
+    private val CASH_DEPOSIT = Regex("""^Cash Deposit:\s*(?:$AMOUNT)?$""", RegexOption.IGNORE_CASE)
+    private val RECEIVED = Regex("""^Received Amount:\s*(?:$AMOUNT)?$""", RegexOption.IGNORE_CASE)
+    private val ISO_DATETIME = Regex("""^(\d{4}/\d{2}/\d{2})\s+(\d{2}:\d{2}(?::\d{2})?)$""")
+    private val DESCRIPTION = Regex("""^Description:\s*(.*)$""", RegexOption.IGNORE_CASE)
+    private val RECHARGE = Regex("""^Mobile Balance Recharge:?\s*(?:$AMOUNT)?$""", RegexOption.IGNORE_CASE)
+    private val ID_LINE = Regex("""^ID:\s*\S+$""", RegexOption.IGNORE_CASE)
+    private val NOISE = listOf(
+        Regex("""^Sms Code:""", RegexOption.IGNORE_CASE),           // login code
+        Regex("""^Code:\s*\d+$""", RegexOption.IGNORE_CASE),        // "Code: 288677 / 401.00 GEL payment ***5190 at ..."
+        Regex("""^A new device or browser""", RegexOption.IGNORE_CASE),
+    )
     private val CASHBACK = Regex("""^(You.ve received:|In Ertguli)""", RegexOption.IGNORE_CASE)
 
     private val SHORT_DATE = DateTimeFormatter.ofPattern("dd/MM/yy")
     private val LONG_DATE = DateTimeFormatter.ofPattern("dd/MM/yyyy")
     private val TIME = DateTimeFormatter.ofPattern("HH:mm")
+    private val ISO_DATE = DateTimeFormatter.ofPattern("yyyy/MM/dd")
+
+    /** TBC messages that are not transactions: one-time codes (a payment code comes before the payment itself) and security alerts. */
+    fun isNoise(text: String): Boolean {
+        val first = text.lineSequence().map { it.trim() }.firstOrNull { it.isNotEmpty() } ?: return false
+        return NOISE.any { it.containsMatchIn(first) }
+    }
 
     fun parse(text: String): ParsedTransaction? {
         val lines = text
@@ -105,7 +142,8 @@ object TbcNotificationParser {
             .filter { it.isNotEmpty() }
         if (lines.isEmpty()) return null
         return runCatching { parseReversal(lines) ?: parseConversion(lines) ?: parseDateOnly(lines, DEPOSIT, TxKind.INCOME) ?: parseDateOnly(lines, TRANSFER, TxKind.EXPENSE)
-            ?: parsePurchase(lines) }.getOrNull()
+            ?: parseDateOnly(lines, CASH_DEPOSIT, TxKind.INCOME, defaultCounterParty = "Cash Deposit")
+            ?: parseReceived(lines) ?: parseRecharge(lines) ?: parsePurchase(lines) }.getOrNull()
     }
 
     private fun parsePurchase(lines: List<String>): ParsedTransaction? {
@@ -203,7 +241,7 @@ object TbcNotificationParser {
      * Deposits and money transfers: a header with the amount on it or on the next line,
      * the account, a dd/MM/yyyy date, then an optional sender or recipient.
      */
-    private fun parseDateOnly(lines: List<String>, header: Regex, kind: TxKind): ParsedTransaction? {
+    private fun parseDateOnly(lines: List<String>, header: Regex, kind: TxKind, defaultCounterParty: String? = null): ParsedTransaction? {
         val head = header.matchEntire(lines[0]) ?: return null
         var bodyStart = 1
         val amount = if (head.groupValues[1].isNotEmpty()) head
@@ -211,7 +249,7 @@ object TbcNotificationParser {
         val dateIndex = lines.indexOfFirst { DATE_LONG.matchEntire(it) != null }
         if (dateIndex < bodyStart) return null
         val accountLabel = lines.subList(bodyStart, dateIndex).joinToString(" ").ifBlank { null }
-        val counterParty = lines.drop(dateIndex + 1).joinToString(" ").ifBlank { null }
+        val counterParty = lines.drop(dateIndex + 1).joinToString(" ").ifBlank { defaultCounterParty }
         return ParsedTransaction(
             kind = kind,
             amount = amount.groupValues[1].toMoney(),
@@ -219,6 +257,54 @@ object TbcNotificationParser {
             counterParty = counterParty,
             accountLabel = accountLabel,
             cardLast4 = accountLabel?.let { CARD.matchEntire(it)?.groupValues?.get(2) },
+            date = LocalDate.parse(lines[dateIndex], LONG_DATE),
+            time = null,
+            balanceAfter = null,
+        )
+    }
+
+    /** SMS "Received Amount:": account (masked IBAN), yyyy/MM/dd HH:mm:ss, then "Description:" naming the sender or purpose. */
+    private fun parseReceived(lines: List<String>): ParsedTransaction? {
+        val head = RECEIVED.matchEntire(lines[0]) ?: return null
+        var bodyStart = 1
+        val amount = if (head.groupValues[1].isNotEmpty()) head
+            else PURCHASE_AMOUNT.matchEntire(lines.getOrNull(1) ?: return null)?.also { bodyStart = 2 } ?: return null
+        val dateIndex = lines.indexOfFirst { ISO_DATETIME.matchEntire(it) != null }
+        if (dateIndex < bodyStart) return null
+        val dt = ISO_DATETIME.matchEntire(lines[dateIndex])!!
+        val accountLabel = lines.subList(bodyStart, dateIndex).joinToString(" ").ifBlank { null }
+        val counterParty = lines.drop(dateIndex + 1)
+            .joinToString(" ") { DESCRIPTION.matchEntire(it)?.groupValues?.get(1) ?: it }.trim().ifBlank { null }
+        val time = dt.groupValues[2]
+        return ParsedTransaction(
+            kind = TxKind.INCOME,
+            amount = amount.groupValues[1].toMoney(),
+            currency = amount.groupValues[2],
+            counterParty = counterParty,
+            accountLabel = accountLabel,
+            cardLast4 = null,
+            date = LocalDate.parse(dt.groupValues[1], ISO_DATE),
+            time = LocalTime.parse(if (time.length == 5) "$time:00" else time),
+            balanceAfter = null,
+        )
+    }
+
+    /** "Mobile Balance Recharge": the operator line ("Account refill (magti)") is the payee, the phone "ID:" the account. */
+    private fun parseRecharge(lines: List<String>): ParsedTransaction? {
+        val head = RECHARGE.matchEntire(lines[0]) ?: return null
+        var bodyStart = 1
+        val amount = if (head.groupValues[1].isNotEmpty()) head
+            else PURCHASE_AMOUNT.matchEntire(lines.getOrNull(1) ?: return null)?.also { bodyStart = 2 } ?: return null
+        val dateIndex = lines.indexOfFirst { DATE_LONG.matchEntire(it) != null }
+        if (dateIndex < bodyStart) return null
+        val (ids, details) = lines.subList(bodyStart, dateIndex).partition { ID_LINE.matchEntire(it) != null }
+        return ParsedTransaction(
+            kind = TxKind.EXPENSE,
+            amount = amount.groupValues[1].toMoney(),
+            currency = amount.groupValues[2],
+            counterParty = details.joinToString(" ").ifBlank { "Mobile Balance Recharge" },
+            accountLabel = ids.joinToString(" ").ifBlank { null },
+            cardLast4 = null,
             date = LocalDate.parse(lines[dateIndex], LONG_DATE),
             time = null,
             balanceAfter = null,

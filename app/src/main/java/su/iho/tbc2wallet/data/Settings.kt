@@ -37,6 +37,12 @@ class Settings(context: Context) {
         get() = prefs.getString("tbc_package", "") ?: ""
         set(value) = prefs.edit().putString("tbc_package", value.trim()).apply()
 
+    /** SMS senders read as TBC, as typed in Settings (one per line or comma-separated). */
+    var smsSenders: List<String>
+        get() = (prefs.getString("sms_senders", null) ?: DEFAULT_SMS_SENDER)
+            .split(',', '\n').map { it.trim() }.filter { it.isNotEmpty() }
+        set(value) = prefs.edit().putString("sms_senders", value.map { it.trim() }.filter { it.isNotEmpty() }.joinToString(", ")).apply()
+
     fun accountFor(currency: String): String? = mapping.getString("account_$currency", null)
     fun setAccountFor(currency: String, accountId: String?) =
         mapping.edit().apply { if (accountId == null) remove("account_$currency") else putString("account_$currency", accountId) }.apply()
@@ -127,6 +133,7 @@ class Settings(context: Context) {
 
     companion object {
         const val MAPPING_PREFS = "account_mapping"
+        const val DEFAULT_SMS_SENDER = "TBC SMS"
         private const val KEY_TOKEN = "wallet_token_enc"
         private const val KEY_ALIAS = "tbc2wallet_token_key"
     }

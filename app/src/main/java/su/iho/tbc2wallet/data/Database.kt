@@ -59,7 +59,14 @@ data class TransactionEntity(
     @ColumnInfo(defaultValue = "0") val countedInUsage: Boolean = false,    // its Wallet record is already in category_usage
     val counterAmount: String? = null,      // conversions: what arrived in counterCurrency, while amount/currency left
     val counterCurrency: String? = null,
+    @ColumnInfo(defaultValue = "PUSH") val source: String = TxSource.PUSH,    // how it arrived: TBC push or TBC SMS
+    val alsoVia: String? = null,    // the same transaction came in again by the other source and was dropped as a duplicate
 )
+
+object TxSource {
+    const val PUSH = "PUSH"
+    const val SMS = "SMS"
+}
 
 @Entity(tableName = "user_rules")
 data class UserRuleEntity(
@@ -178,6 +185,14 @@ abstract class AppDao {
     @Query("SELECT * FROM transactions WHERE dedupKey IN (SELECT reversesKey FROM transactions WHERE reversesKey IS NOT NULL)")
     abstract fun observeReversedCharges(): Flow<List<TransactionEntity>>
 
+    /** Real transactions from [otherSource] that arrived around [since]..[until] and haven't been paired with a twin yet. */
+    @Query("""SELECT * FROM transactions WHERE isFake = 0 AND source = :otherSource AND alsoVia IS NULL
+        AND kind IS NOT NULL AND receivedAt BETWEEN :since AND :until""")
+    abstract suspend fun twinCandidates(otherSource: String, since: Long, until: Long): List<TransactionEntity>
+
+    @Query("UPDATE transactions SET alsoVia = :via WHERE dedupKey = :key")
+    abstract suspend fun setAlsoVia(key: String, via: String)
+
     @Query("SELECT * FROM transactions WHERE dedupKey = :key")
     abstract suspend fun tx(key: String): TransactionEntity?
 
@@ -277,7 +292,7 @@ data class SentAssignment(val dedupKey: String, val walletRecordId: String?, val
         LearnedEntity::class, CategoryEntity::class, AccountEntity::class, LabelEntity::class,
         CategoryUsageEntity::class,
     ],
-    version = 8,
+    version = 9,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -288,7 +303,7 @@ abstract class AppDatabase : RoomDatabase() {
         fun get(context: Context): AppDatabase = instance ?: synchronized(this) {
             instance ?: RulesBackup(context).let { backup ->
                 Room.databaseBuilder(context.applicationContext, AppDatabase::class.java, "tbc2wallet.db")
-                    .addMigrations(*(1..7).map(::catchUp).toTypedArray())
+                    .addMigrations(*(1..8).map(::catchUp).toTypedArray())
                     .addCallback(backup.callback)
                     .build().also { backup.watch(it); instance = it }
             }
@@ -299,13 +314,15 @@ abstract class AppDatabase : RoomDatabase() {
          * transfer rules), so a phone may be on any mix of them. Every old version jumps straight
          * to the current one and adds only what's missing.
          */
-        private fun catchUp(from: Int) = object : Migration(from, 8) {
+        private fun catchUp(from: Int) = object : Migration(from, 9) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.addColumnIfMissing("transactions", "isFake", "INTEGER NOT NULL DEFAULT 0")
                 db.addColumnIfMissing("transactions", "reversesKey", "TEXT")
                 db.addColumnIfMissing("transactions", "countedInUsage", "INTEGER NOT NULL DEFAULT 0")
                 db.addColumnIfMissing("transactions", "counterAmount", "TEXT")
                 db.addColumnIfMissing("transactions", "counterCurrency", "TEXT")
+                db.addColumnIfMissing("transactions", "source", "TEXT NOT NULL DEFAULT 'PUSH'")
+                db.addColumnIfMissing("transactions", "alsoVia", "TEXT")
                 db.addColumnIfMissing("user_rules", "labelIds", "TEXT NOT NULL DEFAULT ''")
                 db.addColumnIfMissing("user_rules", "labelNames", "TEXT NOT NULL DEFAULT ''")
                 db.addColumnIfMissing("user_rules", "transferAccountId", "TEXT")

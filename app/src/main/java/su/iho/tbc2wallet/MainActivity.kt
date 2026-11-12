@@ -127,6 +127,7 @@ import su.iho.tbc2wallet.data.labelIdList
 import su.iho.tbc2wallet.data.labelNameList
 import su.iho.tbc2wallet.data.toUserRule
 import su.iho.tbc2wallet.data.TransactionEntity
+import su.iho.tbc2wallet.data.TxSource
 import su.iho.tbc2wallet.data.TxStatus
 import su.iho.tbc2wallet.data.UserRuleEntity
 import su.iho.tbc2wallet.sync.SyncWorker
@@ -327,7 +328,7 @@ private fun TransactionCard(tx: TransactionEntity, vm: MainViewModel, onMakeRule
                     )
                 }
                 val date = tx.recordDateUtc?.let { Instant.parse(it).atZone(ZoneId.systemDefault()).format(dateFmt) }.orEmpty()
-                Text("$date · ${tx.accountLabel.orEmpty()}", style = MaterialTheme.typography.bodySmall)
+                Text(listOfNotNull(date, tx.accountLabel, sourceLabel(tx)).joinToString(" · "), style = MaterialTheme.typography.bodySmall)
                 Text(categoryLine(tx), style = MaterialTheme.typography.bodySmall)
             }
             if (tx.isFake) Text(
@@ -818,22 +819,25 @@ private fun SettingsScreen(vm: MainViewModel) {
     val version by vm.settingsVersion.collectAsState()
     var hasAccess by remember { mutableStateOf(vm.hasNotificationAccess()) }
     var canAlert by remember { mutableStateOf(canPostNotifications(context)) }
+    var canSms by remember { mutableStateOf(canReadSms(context)) }
     LifecycleResumeEffect(Unit) {
         hasAccess = vm.hasNotificationAccess()
         canAlert = canPostNotifications(context)
+        canSms = canReadSms(context)
         onPauseOrDispose {}
     }
 
     val notifPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { canAlert = it }
+    val smsPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { canSms = it }
     // Steps are numbered from 1 whichever ones are shown; the access step disappears once everything is granted.
-    val showAccess = !hasAccess || !canAlert
+    val showAccess = !hasAccess || !canAlert || !canSms
     val step = if (showAccess) 1 else 0
 
     Column(
         Modifier.verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        if (showAccess) Section("1. Notification access") {
+        if (showAccess) Section("1. Access") {
             if (!hasAccess) {
                 Text("Needed to read TBC notifications.")
                 Button(onClick = { context.startActivity(Intent(ACTION_NOTIFICATION_LISTENER_SETTINGS)) }) {
@@ -842,6 +846,16 @@ private fun SettingsScreen(vm: MainViewModel) {
             }
             if (!canAlert) OutlinedButton(onClick = { notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS) }) {
                 Text("Allow alerts when something needs attention")
+            }
+            if (!canSms) {
+                OutlinedButton(onClick = { smsPermission.launch(Manifest.permission.RECEIVE_SMS) }) {
+                    Text("Allow reading SMS from TBC")
+                }
+                Text(
+                    "For when TBC sends SMS instead of push notifications. Only SMS from the senders in Advanced " +
+                        "(“TBC SMS”) are read; a transaction that comes both ways is recorded once.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
             }
         }
 
@@ -898,6 +912,15 @@ private fun SettingsScreen(vm: MainViewModel) {
                 )
                 OutlinedButton(onClick = { vm.setTbcPackage(pkg) }) { Text("Save package") }
             }
+            key(version) {
+                var senders by remember { mutableStateOf(vm.settings.smsSenders.joinToString(", ")) }
+                OutlinedTextField(
+                    senders, { senders = it }, modifier = Modifier.fillMaxWidth(),
+                    label = { Text("TBC SMS senders") },
+                    supportingText = { Text("SMS from these senders are read as TBC, comma-separated. Empty turns SMS reading off.") },
+                )
+                OutlinedButton(onClick = { vm.setSmsSenders(senders) }) { Text("Save senders") }
+            }
             key(version) { Text("Last sync: ${vm.settings.lastSyncMessage ?: "never"}", style = MaterialTheme.typography.bodySmall) }
             OutlinedButton(onClick = { vm.syncNow() }) { Text("Sync now") }
         }
@@ -911,6 +934,16 @@ private fun SettingsScreen(vm: MainViewModel) {
         )
     }
 }
+
+/** Says how a transaction came in, but only once SMS are in play: push alone is the usual case. */
+private fun sourceLabel(tx: TransactionEntity): String? = when {
+    tx.alsoVia != null -> "push + SMS"
+    tx.source == TxSource.SMS -> "SMS"
+    else -> null
+}
+
+private fun canReadSms(context: Context): Boolean =
+    ContextCompat.checkSelfPermission(context, Manifest.permission.RECEIVE_SMS) == PackageManager.PERMISSION_GRANTED
 
 private fun canPostNotifications(context: Context): Boolean =
     Build.VERSION.SDK_INT < 33 ||
