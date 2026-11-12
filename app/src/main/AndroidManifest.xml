@@ -7,6 +7,14 @@
     <!-- TBC can send transactions as SMS from "TBC SMS" instead of push notifications. -->
     <uses-permission android:name="android.permission.RECEIVE_SMS" />
 
+    <!-- Lets Telephony.Sms.getDefaultSmsPackage() see the SMS app on Android 11+,
+         so its "TBC SMS" notifications are never learned as the TBC app. -->
+    <queries>
+        <intent>
+            <action android:name="android.provider.Telephony.SMS_DELIVER" />
+        </intent>
+    </queries>
+
     <application
         android:label="TBC → Wallet"
         android:icon="@mipmap/ic_launcher"
