@@ -9,6 +9,7 @@ import android.util.Log
 import su.iho.tbc2wallet.data.AppDatabase
 import su.iho.tbc2wallet.data.Settings
 import su.iho.tbc2wallet.data.TransactionEntity
+import su.iho.tbc2wallet.data.TxSource
 import su.iho.tbc2wallet.data.TxStatus
 import su.iho.tbc2wallet.parse.ParsedTransaction
 import su.iho.tbc2wallet.parse.TbcNotificationParser
@@ -49,7 +50,9 @@ class TbcNotificationListener : NotificationListenerService() {
             sbn.packageName == configured
         } else {
             // Not configured yet: learn the package from the first parsable "TBC" notification.
+            // The SMS app's notification for "TBC SMS" looks alike; SMS are read directly by TbcSmsReceiver.
             (title.equals("TBC", true) || title.startsWith("TBC ", true)) &&
+                sbn.packageName != android.provider.Telephony.Sms.getDefaultSmsPackage(this) &&
                 TbcNotificationParser.parse(text) != null
         }
         if (!isTbc) return
@@ -86,8 +89,9 @@ object Ingest {
      */
     suspend fun handle(
         context: Context, text: String, notificationKey: String, whenMillis: Long, postTime: Long,
-        fake: Boolean = false,
+        fake: Boolean = false, source: String = TxSource.PUSH,
     ): Unit = lock.withLock {
+        if (!fake && TbcNotificationParser.isNoise(text)) return@withLock   // codes and security alerts
         val dao = AppDatabase.get(context).dao()
         val parsed = TbcNotificationParser.parse(text)
 
@@ -97,7 +101,7 @@ object Ingest {
                 kind = null, amount = null, currency = null, counterParty = null,
                 accountLabel = null, cardLast4 = null, recordDateUtc = null,
                 rawText = text, status = TxStatus.UNPARSED, receivedAt = System.currentTimeMillis(),
-                isFake = fake,
+                isFake = fake, source = source,
             )
         } else {
             val settings = Settings(context)
@@ -117,7 +121,27 @@ object Ingest {
                 isFake = fake,
                 counterAmount = parsed.counterAmount?.toPlainString(),
                 counterCurrency = parsed.counterCurrency,
+                source = source,
             )
+        }
+
+        // The same transaction already came in by the other source (push vs SMS): keep that one only.
+        val existing = dao.tx(entity.dedupKey)
+        if (existing != null && existing.source != source && existing.alsoVia == null && !fake) {
+            // Identical text both ways (e.g. a purchase): same key, so just mark the pair.
+            dao.setAlsoVia(existing.dedupKey, source)
+        }
+        if (entity.kind != null && existing == null) {
+            val window = Twins.WINDOW.toMillis()
+            val other = if (source == TxSource.SMS) TxSource.PUSH else TxSource.SMS
+            val twin = Twins.find(entity, dao.twinCandidates(other, entity.receivedAt - window, entity.receivedAt + window))
+            if (twin != null) {
+                dao.setAlsoVia(twin.dedupKey, source)
+                // Keep its key, hidden, so a re-post of this copy is ignored too; alsoVia keeps it out of pairing.
+                dao.insertIfNew(entity.copy(status = TxStatus.DELETED, alsoVia = twin.source))
+                Log.d("TbcIngest", "duplicate of ${twin.dedupKey} via $source, dropped")
+                return@withLock
+            }
         }
 
         if (entity.kind == TxKind.REVERSAL.name) return@withLock reverse(context, entity)

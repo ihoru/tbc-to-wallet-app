@@ -4,6 +4,16 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- TBC can send transactions as SMS from "TBC SMS" instead of push notifications. -->
+    <uses-permission android:name="android.permission.RECEIVE_SMS" />
+
+    <!-- Lets Telephony.Sms.getDefaultSmsPackage() see the SMS app on Android 11+,
+         so its "TBC SMS" notifications are never learned as the TBC app. -->
+    <queries>
+        <intent>
+            <action android:name="android.provider.Telephony.SMS_DELIVER" />
+        </intent>
+    </queries>
 
     <application
         android:label="TBC → Wallet"
@@ -31,5 +41,14 @@
                 <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
         </service>
+
+        <receiver
+            android:name=".ingest.TbcSmsReceiver"
+            android:exported="true"
+            android:permission="android.permission.BROADCAST_SMS">
+            <intent-filter>
+                <action android:name="android.provider.Telephony.SMS_RECEIVED" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>
