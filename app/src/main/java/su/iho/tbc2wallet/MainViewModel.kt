@@ -128,6 +128,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         SyncWorker.enqueue(getApplication())
     }
 
+    /** Tries an unreadable notification again with today's parser and says how it went. */
+    fun reparse(tx: TransactionEntity) = viewModelScope.launch {
+        _message.value = when (Ingest.reparse(getApplication(), tx)) {
+            Ingest.Reparse.PARSED -> "Read it now. It goes to Wallet like a new one."
+            Ingest.Reparse.DUPLICATE -> "Read it now. It was already in the list, so it was removed as a duplicate."
+            Ingest.Reparse.IGNORED -> "This is a code or security alert, not a transaction, so it's ignored."
+            Ingest.Reparse.STILL_UNREADABLE -> "Still can't read this one."
+        }
+    }
+
     /** Runs typed-in text through the same path as a real TBC notification, marked as fake. */
     fun simulateNotification(text: String) = viewModelScope.launch {
         val now = System.currentTimeMillis()

@@ -90,8 +90,37 @@ object Ingest {
     suspend fun handle(
         context: Context, text: String, notificationKey: String, whenMillis: Long, postTime: Long,
         fake: Boolean = false, source: String = TxSource.PUSH,
-    ): Unit = lock.withLock {
-        if (!fake && TbcNotificationParser.isNoise(text)) return@withLock   // codes and security alerts
+    ): Unit = lock.withLock { ingest(context, text, notificationKey, whenMillis, postTime, fake, source, System.currentTimeMillis()) }
+
+    /** What [reparse] made of an unreadable notification. */
+    enum class Reparse { PARSED, DUPLICATE, IGNORED, STILL_UNREADABLE }
+
+    /**
+     * Runs an unreadable notification's stored text through today's parser, e.g. after an app update
+     * learned its format. Once it parses it goes the usual way (duplicate check, rules, Wallet) as if
+     * it had just arrived at its original time, and the unreadable row leaves the list.
+     */
+    suspend fun reparse(context: Context, tx: TransactionEntity): Reparse = lock.withLock {
+        val dao = AppDatabase.get(context).dao()
+        val current = dao.tx(tx.dedupKey)
+        if (current == null || current.status != TxStatus.UNPARSED) return@withLock Reparse.STILL_UNREADABLE
+        if (!tx.isFake && TbcNotificationParser.isNoise(tx.rawText)) {
+            dao.setStatus(tx.dedupKey, TxStatus.IGNORED)
+            return@withLock Reparse.IGNORED
+        }
+        if (TbcNotificationParser.parse(tx.rawText) == null) return@withLock Reparse.STILL_UNREADABLE
+        // The notification's own key and time weren't kept; the unreadable row's key stands in for them.
+        val kept = ingest(context, tx.rawText, "reparse:${tx.dedupKey}", tx.receivedAt, tx.receivedAt, tx.isFake, tx.source, tx.receivedAt)
+        dao.setStatus(tx.dedupKey, TxStatus.DELETED)
+        if (kept) Reparse.PARSED else Reparse.DUPLICATE
+    }
+
+    /** False when it was dropped as a duplicate (or noise); [receivedAt] is when it reached the phone. */
+    private suspend fun ingest(
+        context: Context, text: String, notificationKey: String, whenMillis: Long, postTime: Long,
+        fake: Boolean, source: String, receivedAt: Long,
+    ): Boolean {
+        if (!fake && TbcNotificationParser.isNoise(text)) return false   // codes and security alerts
         val dao = AppDatabase.get(context).dao()
         val parsed = TbcNotificationParser.parse(text)
 
@@ -100,7 +129,7 @@ object Ingest {
                 dedupKey = sha("UNPARSED|$text|$notificationKey|$whenMillis"),
                 kind = null, amount = null, currency = null, counterParty = null,
                 accountLabel = null, cardLast4 = null, recordDateUtc = null,
-                rawText = text, status = TxStatus.UNPARSED, receivedAt = System.currentTimeMillis(),
+                rawText = text, status = TxStatus.UNPARSED, receivedAt = receivedAt,
                 isFake = fake, source = source,
             )
         } else {
@@ -117,7 +146,7 @@ object Ingest {
                 recordDateUtc = recordInstant(parsed, postTime).toString(),
                 rawText = text,
                 status = TxStatus.PENDING,
-                receivedAt = System.currentTimeMillis(),
+                receivedAt = receivedAt,
                 isFake = fake,
                 counterAmount = parsed.counterAmount?.toPlainString(),
                 counterCurrency = parsed.counterCurrency,
@@ -140,25 +169,26 @@ object Ingest {
                 // Keep its key, hidden, so a re-post of this copy is ignored too; alsoVia keeps it out of pairing.
                 dao.insertIfNew(entity.copy(status = TxStatus.DELETED, alsoVia = twin.source))
                 Log.d("TbcIngest", "duplicate of ${twin.dedupKey} via $source, dropped")
-                return@withLock
+                return false
             }
         }
 
-        if (entity.kind == TxKind.REVERSAL.name) return@withLock reverse(context, entity)
+        if (entity.kind == TxKind.REVERSAL.name) return reverse(context, entity)
 
         val inserted = dao.insertIfNew(entity) != -1L
         Log.d("TbcIngest", "status=${entity.status} new=$inserted")
         if (inserted && entity.status == TxStatus.PENDING) SyncWorker.enqueue(context)
         if (inserted && entity.status == TxStatus.UNPARSED && !fake) Notifier.unparsed(context)
+        return inserted
     }
 
     /**
      * Links a reversal to the charge it cancels; the worker then removes that charge from Wallet and the list.
      * A re-posted reversal is ignored like a re-posted purchase.
      */
-    private suspend fun reverse(context: Context, reversal: TransactionEntity) {
+    private suspend fun reverse(context: Context, reversal: TransactionEntity): Boolean {
         val dao = AppDatabase.get(context).dao()
-        if (dao.tx(reversal.dedupKey) != null) return
+        if (dao.tx(reversal.dedupKey) != null) return false
         val charge = Reversals.findCharge(reversal, dao.reversalCandidates(reversal.currency!!, reversal.isFake))
         val entity = if (charge == null) reversal.copy(status = TxStatus.NO_MATCH)
             else reversal.copy(status = TxStatus.REVERSING, reversesKey = charge.dedupKey)
@@ -166,6 +196,7 @@ object Ingest {
         Log.d("TbcIngest", "reversal status=${entity.status} new=$inserted")
         if (inserted && charge != null) SyncWorker.enqueue(context)
         if (inserted && charge == null && !reversal.isFake) Notifier.reversalUnmatched(context)
+        return inserted
     }
 
     /**

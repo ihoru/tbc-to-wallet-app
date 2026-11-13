@@ -84,4 +84,51 @@ class SmsIngestTest {
             source = TxSource.SMS)
         assertEquals(0, rows().size)
     }
+
+    /** An unreadable row as an older app version saved it. */
+    private fun unparsed(text: String, source: String = TxSource.SMS, key: String = "old-unparsed", at: Long = now) = runBlocking {
+        val tx = su.iho.tbc2wallet.data.TransactionEntity(
+            dedupKey = key, kind = null, amount = null, currency = null, counterParty = null,
+            accountLabel = null, cardLast4 = null, recordDateUtc = null,
+            rawText = text, status = TxStatus.UNPARSED, receivedAt = at, source = source,
+        )
+        AppDatabase.get(app).dao().insertIfNew(tx)
+        tx
+    }
+
+    private val boltSms = "12.50GEL\n(*5190)\nBoltTaxi\nBalance: 6335.35GEL\nYou have received: 0.04GEL\n" +
+        "In Ertguli Piggy bank you have: 0.15GEL\n13/11/26 02:17"
+
+    @Test fun reparseReadsAnOldUnreadableSms() = runBlocking {
+        val old = unparsed(boltSms)
+        assertEquals(Ingest.Reparse.PARSED, Ingest.reparse(app, old))
+        val row = rows().single()
+        assertEquals(TxStatus.PENDING, row.status)
+        assertEquals("BoltTaxi", row.counterParty)
+        assertEquals("12.50", row.amount)
+        assertEquals(now, row.receivedAt)   // keeps its place in the list
+        assertEquals(TxSource.SMS, row.source)
+    }
+
+    @Test fun reparseDropsItWhenThePushCopyIsAlreadyThere() = runBlocking {
+        Ingest.handle(app, "Deposit Money: 60.00 GEL\nTBC CARD\n12/11/2026", "push-1", now, now)
+        // Arrived together with the push (handle stamps the real clock), so they are twins.
+        val old = unparsed("Received Amount: 60.00 GEL\nGE61TB****0007\n2026/11/12 11:24:26\nDescription: x", at = System.currentTimeMillis())
+        assertEquals(Ingest.Reparse.DUPLICATE, Ingest.reparse(app, old))
+        val row = rows().single()
+        assertEquals(TxSource.PUSH, row.source)
+        assertEquals(TxSource.SMS, row.alsoVia)
+    }
+
+    @Test fun reparseKeepsWhatStillDoesNotParse() = runBlocking {
+        val old = unparsed("Something new from TBC")
+        assertEquals(Ingest.Reparse.STILL_UNREADABLE, Ingest.reparse(app, old))
+        assertEquals(TxStatus.UNPARSED, rows().single().status)
+    }
+
+    @Test fun reparseIgnoresCodes() = runBlocking {
+        val old = unparsed("Sms Code: 1023\nPlease check that you enter this code only on tbconline or in mobilebank")
+        assertEquals(Ingest.Reparse.IGNORED, Ingest.reparse(app, old))
+        assertEquals(TxStatus.IGNORED, rows().single().status)
+    }
 }
