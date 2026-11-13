@@ -90,7 +90,15 @@ object Ingest {
     suspend fun handle(
         context: Context, text: String, notificationKey: String, whenMillis: Long, postTime: Long,
         fake: Boolean = false, source: String = TxSource.PUSH,
-    ): Unit = lock.withLock { ingest(context, text, notificationKey, whenMillis, postTime, fake, source, System.currentTimeMillis()) }
+    ): Unit = lock.withLock {
+        // A re-post of a notification an older version couldn't read: that row already stands for it.
+        val old = if (fake) null else AppDatabase.get(context).dao().tx(unparsedKey(text, notificationKey, whenMillis))
+        if (old != null && TbcNotificationParser.parse(text) != null) {
+            if (old.status == TxStatus.UNPARSED) reparseLocked(context, old)
+            return@withLock
+        }
+        ingest(context, text, notificationKey, whenMillis, postTime, fake, source, System.currentTimeMillis())
+    }
 
     /** What [reparse] made of an unreadable notification. */
     enum class Reparse { PARSED, DUPLICATE, IGNORED, STILL_UNREADABLE }
@@ -101,19 +109,28 @@ object Ingest {
      * it had just arrived at its original time, and the unreadable row leaves the list.
      */
     suspend fun reparse(context: Context, tx: TransactionEntity): Reparse = lock.withLock {
+        val current = AppDatabase.get(context).dao().tx(tx.dedupKey)
+        if (current == null || current.status != TxStatus.UNPARSED) Reparse.STILL_UNREADABLE else reparseLocked(context, current)
+    }
+
+    /**
+     * The unreadable row stays behind, hidden, so a later re-post of the same notification (same
+     * unreadable key) is recognised in [handle] instead of being read as a new transaction.
+     */
+    private suspend fun reparseLocked(context: Context, tx: TransactionEntity): Reparse {
         val dao = AppDatabase.get(context).dao()
-        val current = dao.tx(tx.dedupKey)
-        if (current == null || current.status != TxStatus.UNPARSED) return@withLock Reparse.STILL_UNREADABLE
         if (!tx.isFake && TbcNotificationParser.isNoise(tx.rawText)) {
             dao.setStatus(tx.dedupKey, TxStatus.IGNORED)
-            return@withLock Reparse.IGNORED
+            return Reparse.IGNORED
         }
-        if (TbcNotificationParser.parse(tx.rawText) == null) return@withLock Reparse.STILL_UNREADABLE
+        if (TbcNotificationParser.parse(tx.rawText) == null) return Reparse.STILL_UNREADABLE
         // The notification's own key and time weren't kept; the unreadable row's key stands in for them.
         val kept = ingest(context, tx.rawText, "reparse:${tx.dedupKey}", tx.receivedAt, tx.receivedAt, tx.isFake, tx.source, tx.receivedAt)
         dao.setStatus(tx.dedupKey, TxStatus.DELETED)
-        if (kept) Reparse.PARSED else Reparse.DUPLICATE
+        return if (kept) Reparse.PARSED else Reparse.DUPLICATE
     }
+
+    private fun unparsedKey(text: String, notificationKey: String, whenMillis: Long) = sha("UNPARSED|$text|$notificationKey|$whenMillis")
 
     /** False when it was dropped as a duplicate (or noise); [receivedAt] is when it reached the phone. */
     private suspend fun ingest(
@@ -126,7 +143,7 @@ object Ingest {
 
         val entity = if (parsed == null) {
             TransactionEntity(
-                dedupKey = sha("UNPARSED|$text|$notificationKey|$whenMillis"),
+                dedupKey = unparsedKey(text, notificationKey, whenMillis),
                 kind = null, amount = null, currency = null, counterParty = null,
                 accountLabel = null, cardLast4 = null, recordDateUtc = null,
                 rawText = text, status = TxStatus.UNPARSED, receivedAt = receivedAt,

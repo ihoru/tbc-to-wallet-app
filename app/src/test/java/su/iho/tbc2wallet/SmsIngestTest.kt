@@ -131,4 +131,28 @@ class SmsIngestTest {
         assertEquals(Ingest.Reparse.IGNORED, Ingest.reparse(app, old))
         assertEquals(TxStatus.IGNORED, rows().single().status)
     }
+
+    /** An older version saved it unreadable; after the update Android re-posts the same push. */
+    @Test fun repostOfAnOldUnreadableIsReadOnce() = runBlocking {
+        val dao = AppDatabase.get(app).dao()
+        val text = "Deposit Money: 60.00 GEL\nTBC CARD\n12/11/2026"
+        // What the older version stored for it (same key formula as Ingest).
+        val key = java.security.MessageDigest.getInstance("SHA-256").digest("UNPARSED|$text|push-1|$now".toByteArray())
+            .joinToString("") { "%02x".format(it) }.take(32)
+        unparsed(text, source = TxSource.PUSH, key = key)
+        Ingest.handle(app, text, "push-1", now, now)   // re-post before Retry: read in place of the old row
+        assertEquals(TxStatus.PENDING, rows().single().status)
+        Ingest.handle(app, text, "push-1", now, now)   // and again: still one
+        assertEquals(1, rows().size)
+    }
+
+    @Test fun repostAfterRetryIsNotSentTwice() = runBlocking {
+        val text = "Deposit Money: 60.00 GEL\nTBC CARD\n12/11/2026"
+        val key = java.security.MessageDigest.getInstance("SHA-256").digest("UNPARSED|$text|push-1|$now".toByteArray())
+            .joinToString("") { "%02x".format(it) }.take(32)
+        val old = unparsed(text, source = TxSource.PUSH, key = key)
+        assertEquals(Ingest.Reparse.PARSED, Ingest.reparse(app, old))
+        Ingest.handle(app, text, "push-1", now, now)
+        assertEquals(1, rows().size)
+    }
 }
