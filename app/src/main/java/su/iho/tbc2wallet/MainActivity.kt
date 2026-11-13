@@ -342,6 +342,8 @@ private fun TransactionCard(tx: TransactionEntity, vm: MainViewModel, onMakeRule
                 // Wraps on narrow phones, where Retry, Ignore and Rule… don't all fit beside the chip.
                 FlowRow(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
                     if (tx.status == TxStatus.FAILED) TextButton(onClick = { vm.retry(tx) }) { Text("Retry") }
+                    // After an app update, reads it again with the newer parser.
+                    if (tx.status == TxStatus.UNPARSED) TextButton(onClick = { vm.reparse(tx) }) { Text("Retry") }
                     if (tx.status in setOf(TxStatus.FAILED, TxStatus.UNPARSED, TxStatus.NEEDS_ACCOUNT, TxStatus.PENDING, TxStatus.NO_MATCH))
                         TextButton(onClick = { vm.ignore(tx) }) { Text("Ignore") }
                     if (tx.counterParty != null && tx.kind != TxKind.REVERSAL.name) TextButton(onClick = { onMakeRule(tx) }) { Text("Rule…") }
