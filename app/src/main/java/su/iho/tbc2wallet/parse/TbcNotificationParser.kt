@@ -91,6 +91,8 @@ data class ParsedTransaction(
  *   (*5190)
  *   WILDBERRIES
  *   Balance: 7017.87GEL
+ *   [You have received: 0.04GEL]                     <- Ertguli cashback, ignored
+ *   [In Ertguli Piggy bank you have: 0.11GEL]        <- ignored
  *   12/11/26 16:43
  *
  * Mobile top-up (the amount may have no space before the currency):
@@ -129,7 +131,7 @@ object TbcNotificationParser {
         Regex("""^Code:\s*\d+$""", RegexOption.IGNORE_CASE),        // "Code: 288677 / 401.00 GEL payment ***5190 at ..."
         Regex("""^A new device or browser""", RegexOption.IGNORE_CASE),
     )
-    private val CASHBACK = Regex("""^(You.ve received:|In Ertguli)""", RegexOption.IGNORE_CASE)
+    private val CASHBACK = Regex("""^(You(?:.ve| have) received:|In Ertguli)""", RegexOption.IGNORE_CASE)
 
     private val SHORT_DATE = DateTimeFormatter.ofPattern("dd/MM/yy")
     private val LONG_DATE = DateTimeFormatter.ofPattern("dd/MM/yyyy")
@@ -161,7 +163,8 @@ object TbcNotificationParser {
         var balance: MatchResult? = null
         var merchant: String? = null        // SMS: the merchant on its own line
         for (line in lines.drop(1)) {
-            if (CASHBACK.containsMatchIn(line)) break // everything after is loyalty info
+            // Loyalty lines are skipped, not a stop: in the SMS the date comes after them.
+            if (CASHBACK.containsMatchIn(line)) continue
             when {
                 card == null && CARD.matchEntire(line) != null -> card = CARD.matchEntire(line)
                 merchantDate == null && MERCHANT_DATETIME.matchEntire(line) != null ->
@@ -198,7 +201,7 @@ object TbcNotificationParser {
         var time: String? = null
         var balance: MatchResult? = null
         for (line in rest) {
-            if (CASHBACK.containsMatchIn(line)) break
+            if (CASHBACK.containsMatchIn(line)) continue
             val dt = DATETIME.matchEntire(line)
             val mdt = MERCHANT_DATETIME.matchEntire(line)
             when {

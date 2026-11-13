@@ -67,6 +67,17 @@ class SmsParserTest {
         assertEquals(BigDecimal("7017.87"), t.balanceAfter)
     }
 
+    @Test fun cardPurchaseSmsWithCashbackBeforeTheDate() {
+        val t = TbcNotificationParser.parse(
+            "11.94GEL\n(*5190)\nSPAR\nBalance: 6374.85GEL \nYou have received: 0.04GEL\nIn Ertguli Piggy bank you have: 0.11GEL\n12/11/26 19:45"
+        )!!
+        assertEquals(BigDecimal("11.94"), t.amount)
+        assertEquals("SPAR", t.counterParty)
+        assertEquals("5190", t.cardLast4)
+        assertEquals(LocalTime.of(19, 45), t.time)
+        assertEquals(BigDecimal("6374.85"), t.balanceAfter)
+    }
+
     @Test fun mobileBalanceRecharge() {
         val t = TbcNotificationParser.parse("Mobile Balance Recharge\n35.00GEL\nAccount refill (magti)\nID:591006815\n12/11/2026")!!
         assertEquals(TxKind.EXPENSE, t.kind)
