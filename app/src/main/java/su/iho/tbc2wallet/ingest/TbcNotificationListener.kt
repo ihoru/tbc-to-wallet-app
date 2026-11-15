@@ -184,6 +184,11 @@ object Ingest {
             val twin = Twins.find(entity, dao.twinCandidates(other, entity.receivedAt - window, entity.receivedAt + window))
             if (twin != null) {
                 dao.setAlsoVia(twin.dedupKey, source)
+                // The SMS of an incoming push carries the description the push lacks; Wallet gets it too.
+                if (entity.note != null && twin.note == null) {
+                    dao.setNoteIfMissing(twin.dedupKey, entity.note)
+                    if (twin.status == TxStatus.SENT) SyncWorker.enqueue(context)
+                }
                 // Keep its key, hidden, so a re-post of this copy is ignored too; alsoVia keeps it out of pairing.
                 dao.insertIfNew(entity.copy(status = TxStatus.DELETED, alsoVia = twin.source))
                 Log.d("TbcIngest", "duplicate of ${twin.dedupKey} via $source, dropped")

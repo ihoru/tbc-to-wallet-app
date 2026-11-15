@@ -62,6 +62,7 @@ data class TransactionEntity(
     @ColumnInfo(defaultValue = "PUSH") val source: String = TxSource.PUSH,    // how it arrived: TBC push or TBC SMS
     val note: String? = null,       // TBC's own description (SMS "Description:"), sent as the Wallet note
     val alsoVia: String? = null,    // the same transaction came in again by the other source and was dropped as a duplicate
+    val sentNote: String? = null,   // the note as last written to Wallet; differs from note = still to patch there
 )
 
 object TxSource {
@@ -205,12 +206,27 @@ abstract class AppDao {
     @Query("SELECT alsoVia FROM transactions WHERE dedupKey = :key")
     abstract suspend fun alsoViaOf(key: String): String?
 
+    @Query("SELECT note FROM transactions WHERE dedupKey = :key")
+    abstract suspend fun noteOf(key: String): String?
+
+    /** Gives a transaction the description its twin brought (the SMS of an incoming push), unless it has one. */
+    @Query("UPDATE transactions SET note = :note WHERE dedupKey = :key AND note IS NULL")
+    abstract suspend fun setNoteIfMissing(key: String, note: String)
+
+    @Query("UPDATE transactions SET sentNote = :note WHERE dedupKey = :key")
+    abstract suspend fun setSentNote(key: String, note: String?)
+
+    /** In Wallet, but their note changed after they were sent (the SMS twin came later). */
+    @Query("""SELECT * FROM transactions WHERE status = 'SENT' AND walletRecordId IS NOT NULL AND note IS NOT NULL
+        AND (sentNote IS NULL OR sentNote != note)""")
+    abstract suspend fun notesToPatch(): List<TransactionEntity>
+
     /**
      * Saves [tx], but a row you deleted while it was being sent stays deleted, and a twin that
-     * arrived by the other source meanwhile stays paired.
+     * arrived by the other source meanwhile stays paired and keeps the note it brought.
      */
     @Transaction open suspend fun upsertTx(tx: TransactionEntity) {
-        val kept = tx.copy(alsoVia = alsoViaOf(tx.dedupKey) ?: tx.alsoVia)
+        val kept = tx.copy(alsoVia = alsoViaOf(tx.dedupKey) ?: tx.alsoVia, note = noteOf(tx.dedupKey) ?: tx.note)
         upsertRaw(if (statusOf(tx.dedupKey) == TxStatus.DELETED) kept.copy(status = TxStatus.DELETED) else kept)
     }
 
@@ -332,6 +348,7 @@ abstract class AppDatabase : RoomDatabase() {
                 db.addColumnIfMissing("transactions", "source", "TEXT NOT NULL DEFAULT 'PUSH'")
                 db.addColumnIfMissing("transactions", "alsoVia", "TEXT")
                 db.addColumnIfMissing("transactions", "note", "TEXT")
+                db.addColumnIfMissing("transactions", "sentNote", "TEXT")
                 db.addColumnIfMissing("user_rules", "labelIds", "TEXT NOT NULL DEFAULT ''")
                 db.addColumnIfMissing("user_rules", "labelNames", "TEXT NOT NULL DEFAULT ''")
                 db.addColumnIfMissing("user_rules", "transferAccountId", "TEXT")

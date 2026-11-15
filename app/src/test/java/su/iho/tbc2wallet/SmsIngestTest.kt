@@ -40,6 +40,22 @@ class SmsIngestTest {
         assertEquals(1, rows.size)
         assertEquals(TxSource.PUSH, rows[0].source)
         assertEquals(TxSource.SMS, rows[0].alsoVia)
+        assertEquals("x", rows[0].note) // the SMS description is kept on the push it was paired with
+    }
+
+    @Test fun lateSmsDescriptionIsPatchedIntoTheSentRecord() = runBlocking {
+        val dao = AppDatabase.get(app).dao()
+        Ingest.handle(app, "Deposit Money: 30.00 GEL\nTBC CARD\n12/11/2026\nMIKHAIL SINKEVICH", "push-1", now, now)
+        val stale = rows().single()   // read by the sync worker before the SMS lands
+        Ingest.handle(app, "Received Amount: 30.00 GEL\nGE61TB****0007\n2026/11/12 11:24:26\nDescription: პირადი გადარიცხვა",
+            "sms:TBC SMS", now, now, source = TxSource.SMS)
+        dao.upsertTx(stale.copy(status = TxStatus.SENT, walletRecordId = "r1", sentNote = stale.note))
+        val row = rows().single()
+        assertEquals("MIKHAIL SINKEVICH", row.counterParty)
+        assertEquals("პირადი გადარიცხვა", row.note)
+        assertEquals(listOf("r1"), dao.notesToPatch().map { it.walletRecordId })
+        dao.setSentNote(row.dedupKey, row.note)
+        assertEquals(emptyList<String>(), dao.notesToPatch().map { it.walletRecordId })
     }
 
     @Test fun repostedDuplicateStaysDropped() = runBlocking {
