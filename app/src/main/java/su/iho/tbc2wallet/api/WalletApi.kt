@@ -109,6 +109,7 @@ class WalletApi(private val token: String) {
     @Serializable data class RecordPatch(
         val id: String,
         val categoryId: String? = null,
+        val note: String? = null,
         /** Added to the record's labels; the ones it already has (e.g. "fake") stay. */
         @SerialName("labelIds") val addLabels: LabelChange? = null,
     )

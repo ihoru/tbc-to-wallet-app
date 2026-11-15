@@ -50,7 +50,9 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
             // Before sending, so a charge that was cancelled while still queued is never sent.
             val reversalsLeft = applyReversals(api)
             // Fakes held back by a label-endpoint outage are retried with backoff.
-            if (sendQueued(api, token) || reversalsLeft) Result.retry() else Result.success()
+            val heldBack = sendQueued(api, token)
+            val notesLeft = patchNotes(api)
+            if (heldBack || reversalsLeft || notesLeft) Result.retry() else Result.success()
         } catch (e: WalletApi.ApiException.Unauthorized) {
             note("Wallet rejected the API token. Paste a new one in Settings.")
             Notifier.failed(applicationContext, dao.toSend().size, "Wallet rejected the API token.")
@@ -108,6 +110,31 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
             }
             charge?.let { dao.setStatus(it.dedupKey, TxStatus.DELETED) }
             dao.upsertTx(rev.copy(status = TxStatus.REVERSED, error = null))
+        }
+        return retry
+    }
+
+    /**
+     * Adds the note to records already in Wallet when it came afterwards (the SMS twin of a push).
+     * Returns true when Wallet failed on its side and it should be tried again.
+     */
+    private suspend fun patchNotes(api: WalletApi): Boolean {
+        var retry = false
+        for (chunk in dao.notesToPatch().chunked(10)) {
+            val results = api.updateRecords(chunk.map { WalletApi.RecordPatch(id = it.walletRecordId!!, note = walletNote(it)) })
+                .associateBy { it.inputIndex }
+            chunk.forEachIndexed { i, tx ->
+                val r = results[i]
+                when {
+                    r?.success == true -> dao.setSentNote(tx.dedupKey, tx.note)
+                    // Rejected, e.g. the record was deleted in Wallet: don't keep asking.
+                    r?.errorType == "client_error" -> {
+                        Log.w(TAG, "note for ${tx.dedupKey} rejected: ${r.error}")
+                        dao.setSentNote(tx.dedupKey, tx.note)
+                    }
+                    else -> retry = true
+                }
+            }
         }
         return retry
     }
@@ -181,7 +208,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
                     accountId = accountId,
                     amount = WalletApi.Amount(tx.amount!!.toBigDecimal().negate().toDouble(), currency),
                     recordDate = tx.recordDateUtc!!,
-                    note = FAKE_NOTE_MARKER.takeIf { tx.isFake },
+                    note = walletNote(tx),
                     labelIds = listOfNotNull(fakeLabel.takeIf { tx.isFake }).ifEmpty { null },
                     transfer = WalletApi.Transfer(toId, pairingMode = "new",
                         counterAmount = WalletApi.Amount(tx.counterAmount!!.toBigDecimal().toDouble(), toCurrency)),
@@ -204,7 +231,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
                 recordDate = tx.recordDateUtc!!,
                 categoryId = decision.categoryId,
                 counterParty = tx.counterParty,
-                note = FAKE_NOTE_MARKER.takeIf { tx.isFake },
+                note = walletNote(tx),
                 labelIds = (decision.labelIds + listOfNotNull(fakeLabel.takeIf { tx.isFake })).distinct().ifEmpty { null },
                 transfer = decision.transferAccountId?.let { WalletApi.Transfer(it, pairingMode = "new") },
             )
@@ -231,7 +258,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
                     when {
                         r?.success == true -> {
                             sent++; sentKeys += tx.dedupKey
-                            dao.upsertTx(tx.copy(status = TxStatus.SENT, walletRecordId = r.id, error = null))
+                            dao.upsertTx(tx.copy(status = TxStatus.SENT, walletRecordId = r.id, error = null, sentNote = tx.note))
                         }
                         // The fake label may have been deleted in Wallet since we looked it up: retry without it.
                         r?.errorType == "client_error" && retryWithoutLabel && tx.isFake && fakeLabel != null &&
@@ -310,6 +337,10 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         private const val TAG = "SyncWorker"
         const val FAKE_LABEL = "fake"
         const val FAKE_NOTE_MARKER = "[fake]"
+
+        /** TBC's description, with "[fake]" in front for a typed-in record so it never teaches the payee map. */
+        internal fun walletNote(tx: TransactionEntity): String? =
+            listOfNotNull(FAKE_NOTE_MARKER.takeIf { tx.isFake }, tx.note?.takeIf { it.isNotBlank() }).joinToString(" ").ifEmpty { null }
         /** categorySource of a transaction sent as a transfer; categoryName then holds the other account. */
         const val TRANSFER_SOURCE = "TRANSFER"
         private const val RECENT_LABEL_MS = 15 * 60 * 1000L

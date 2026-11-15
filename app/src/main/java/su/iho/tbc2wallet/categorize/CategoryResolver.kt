@@ -69,6 +69,9 @@ data class LearnedEntry(
  *  2. Wallet's record rules (the categorization Wallet itself would apply)
  *  3. the map learned from how you categorized this payee in the past
  *  4. nothing -> Wallet files it as "Unknown"
+ *
+ * Income is never given a category: you file incoming money by hand in Wallet. Only a transfer
+ * rule still applies to it, since that marks money from your own account rather than a category.
  */
 class CategoryResolver(
     userRules: List<UserRule>,
@@ -82,6 +85,11 @@ class CategoryResolver(
     fun resolve(kind: TxKind, counterParty: String?, accountId: String?): CategoryDecision {
         val payee = counterParty?.trim().orEmpty()
         if (payee.isEmpty()) return NONE
+
+        if (kind == TxKind.INCOME) {
+            val transfer = userRules.firstOrNull { it.transferAccountId != null && it.matches(kind, payee) } ?: return NONE
+            return CategoryDecision(null, null, CategorySource.USER_RULE, transfer.labelIds, transfer.transferAccountId, transfer.transferAccountName)
+        }
 
         userRules.firstOrNull { it.matches(kind, payee) }?.let {
             if (it.transferAccountId != null) {

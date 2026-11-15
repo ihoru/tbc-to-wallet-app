@@ -53,10 +53,16 @@ class SmsScreenshots {
         val dao = db.dao()
         val now = System.currentTimeMillis()
         dao.insertIfNew(TransactionEntity(
-            dedupKey = "s1", kind = "INCOME", amount = "60.00", currency = "GEL", counterParty = "პირადი გადარიცხვა",
+            dedupKey = "s1", kind = "INCOME", amount = "60.00", currency = "GEL", counterParty = null, note = "პირადი გადარიცხვა",
             accountLabel = "GE61TB****0007", cardLast4 = null, recordDateUtc = "2026-11-12T07:24:26Z",
             rawText = "Received Amount: 60.00 GEL\nGE61TB****0007\n2026/11/12 11:24:26\nDescription: პირადი გადარიცხვა",
-            status = TxStatus.SENT, walletRecordId = "r1", categoryName = "Unknown income", receivedAt = now, source = TxSource.SMS,
+            status = TxStatus.SENT, walletRecordId = "r1", categorySource = "NONE", receivedAt = now, source = TxSource.SMS,
+        ))
+        dao.insertIfNew(TransactionEntity(
+            dedupKey = "d1", kind = "INCOME", amount = "30.00", currency = "GEL", counterParty = "MIKHAIL SINKEVICH",
+            accountLabel = "TBC CARD", cardLast4 = null, recordDateUtc = "2026-11-12T07:00:00Z",
+            rawText = "Deposit Money: 30.00 GEL\nTBC CARD\n12/11/2026\nMIKHAIL SINKEVICH",
+            status = TxStatus.SENT, walletRecordId = "r0", categorySource = "NONE", receivedAt = now - 0, source = TxSource.PUSH,
         ))
         dao.insertIfNew(TransactionEntity(
             dedupKey = "s2", kind = "EXPENSE", amount = "35.00", currency = "GEL", counterParty = "Account refill (magti)",

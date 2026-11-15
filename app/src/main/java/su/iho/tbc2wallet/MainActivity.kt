@@ -329,6 +329,7 @@ private fun TransactionCard(tx: TransactionEntity, vm: MainViewModel, onMakeRule
                 }
                 val date = tx.recordDateUtc?.let { Instant.parse(it).atZone(ZoneId.systemDefault()).format(dateFmt) }.orEmpty()
                 Text(listOfNotNull(date, tx.accountLabel, sourceLabel(tx)).joinToString(" · "), style = MaterialTheme.typography.bodySmall)
+                tx.note?.let { Text("Note: $it", style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis) }
                 Text(categoryLine(tx), style = MaterialTheme.typography.bodySmall)
             }
             if (tx.isFake) Text(
@@ -402,7 +403,8 @@ private fun localDate(utc: String?): String =
 private fun categoryLine(tx: TransactionEntity): String = when (tx.categorySource) {
     null -> if (tx.kind == TxKind.CONVERSION.name) "Transfer from your ${tx.currency} account to your ${tx.counterCurrency} one"
         else "Category: decided when sent"
-    "NONE" -> "Category: none (Wallet files it as Unknown)"
+    "NONE" -> if (tx.kind == "INCOME") "Category: none · income is yours to file in Wallet"
+        else "Category: none (Wallet files it as Unknown)"
     "USER_RULE" -> "Category: ${tx.categoryName} · your rule"
     "WALLET_RULE" -> "Category: ${tx.categoryName} · Wallet rule"
     "LEARNED" -> "Category: ${tx.categoryName} · learned from history"

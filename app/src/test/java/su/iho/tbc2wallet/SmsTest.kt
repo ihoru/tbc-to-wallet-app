@@ -11,6 +11,7 @@ import su.iho.tbc2wallet.data.TxStatus
 import su.iho.tbc2wallet.ingest.TbcSmsReceiver
 import su.iho.tbc2wallet.ingest.Twins
 import su.iho.tbc2wallet.parse.TbcNotificationParser
+import su.iho.tbc2wallet.sync.SyncWorker
 import su.iho.tbc2wallet.parse.TxKind
 import java.math.BigDecimal
 import java.time.LocalDate
@@ -25,14 +26,42 @@ class SmsParserTest {
         assertEquals(BigDecimal("60.00"), t.amount)
         assertEquals("GEL", t.currency)
         assertEquals("GE61TB****0007", t.accountLabel)
-        assertEquals("პირადი გადარიცხვა", t.counterParty)
+        assertNull(t.counterParty)
+        assertEquals("პირადი გადარიცხვა", t.note)
         assertEquals(LocalDate.of(2026, 11, 12), t.date)
         assertEquals(LocalTime.of(11, 24, 26), t.time)
+    }
+
+    /** Iggy's SMS of 15/11/2026: the description is the transfer's purpose, so it is the note, not the payee. */
+    @Test fun receivedAmountDescriptionIsTheNote() {
+        val t = TbcNotificationParser.parse(
+            "Received Amount: 30.00 GEL\nGE61TB****0007\n2026/11/15 22:53:38\nDescription: პირადი გადარიცხვა"
+        )!!
+        assertEquals(TxKind.INCOME, t.kind)
+        assertEquals(BigDecimal("30.00"), t.amount)
+        assertEquals("GEL", t.currency)
+        assertEquals("GE61TB****0007", t.accountLabel)
+        assertNull(t.counterParty)
+        assertEquals("პირადი გადარიცხვა", t.note)
+        assertEquals(LocalDate.of(2026, 11, 15), t.date)
+        assertEquals(LocalTime.of(22, 53, 38), t.time)
+    }
+
+    @Test fun walletNoteCarriesTheDescription() {
+        val tx = TransactionEntity(
+            dedupKey = "k", kind = "INCOME", amount = "30.00", currency = "GEL", counterParty = null,
+            accountLabel = null, cardLast4 = null, recordDateUtc = null, rawText = "", status = TxStatus.PENDING,
+            receivedAt = 0, note = "პირადი გადარიცხვა",
+        )
+        assertEquals("პირადი გადარიცხვა", SyncWorker.walletNote(tx))
+        assertEquals("[fake] პირადი გადარიცხვა", SyncWorker.walletNote(tx.copy(isFake = true)))
+        assertNull(SyncWorker.walletNote(tx.copy(note = null)))
     }
 
     @Test fun receivedAmountWithoutDescription() {
         val t = TbcNotificationParser.parse("Received Amount: 30.00 GEL\nGE61TB****0007\n2026/11/11 20:13:26")!!
         assertNull(t.counterParty)
+        assertNull(t.note)
         assertEquals(LocalTime.of(20, 13, 26), t.time)
     }
 
