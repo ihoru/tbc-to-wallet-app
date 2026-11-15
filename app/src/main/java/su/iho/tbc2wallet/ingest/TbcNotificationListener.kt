@@ -167,6 +167,7 @@ object Ingest {
                 isFake = fake,
                 counterAmount = parsed.counterAmount?.toPlainString(),
                 counterCurrency = parsed.counterCurrency,
+                note = parsed.note,
                 source = source,
             )
         }
@@ -223,7 +224,8 @@ object Ingest {
      */
     private fun dedupKey(p: ParsedTransaction, notificationKey: String, whenMillis: Long): String {
         val base = listOf(p.kind, p.amount.toPlainString(), p.currency, p.counterParty, p.cardLast4, p.date, p.time, p.balanceAfter)
-            .joinToString("|") + (p.counterAmount?.let { "|${it.toPlainString()}|${p.counterCurrency}" } ?: "")
+            .joinToString("|") + (p.counterAmount?.let { "|${it.toPlainString()}|${p.counterCurrency}" } ?: "") +
+            (p.note?.let { "|$it" } ?: "")
         return sha(if (p.time != null) base else "$base|$notificationKey|$whenMillis")
     }
 

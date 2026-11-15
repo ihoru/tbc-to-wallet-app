@@ -60,6 +60,7 @@ data class TransactionEntity(
     val counterAmount: String? = null,      // conversions: what arrived in counterCurrency, while amount/currency left
     val counterCurrency: String? = null,
     @ColumnInfo(defaultValue = "PUSH") val source: String = TxSource.PUSH,    // how it arrived: TBC push or TBC SMS
+    val note: String? = null,       // TBC's own description (SMS "Description:"), sent as the Wallet note
     val alsoVia: String? = null,    // the same transaction came in again by the other source and was dropped as a duplicate
 )
 
@@ -299,7 +300,7 @@ data class SentAssignment(val dedupKey: String, val walletRecordId: String?, val
         LearnedEntity::class, CategoryEntity::class, AccountEntity::class, LabelEntity::class,
         CategoryUsageEntity::class,
     ],
-    version = 9,
+    version = 10,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -310,7 +311,7 @@ abstract class AppDatabase : RoomDatabase() {
         fun get(context: Context): AppDatabase = instance ?: synchronized(this) {
             instance ?: RulesBackup(context).let { backup ->
                 Room.databaseBuilder(context.applicationContext, AppDatabase::class.java, "tbc2wallet.db")
-                    .addMigrations(*(1..8).map(::catchUp).toTypedArray())
+                    .addMigrations(*(1..9).map(::catchUp).toTypedArray())
                     .addCallback(backup.callback)
                     .build().also { backup.watch(it); instance = it }
             }
@@ -321,7 +322,7 @@ abstract class AppDatabase : RoomDatabase() {
          * transfer rules), so a phone may be on any mix of them. Every old version jumps straight
          * to the current one and adds only what's missing.
          */
-        private fun catchUp(from: Int) = object : Migration(from, 9) {
+        private fun catchUp(from: Int) = object : Migration(from, 10) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.addColumnIfMissing("transactions", "isFake", "INTEGER NOT NULL DEFAULT 0")
                 db.addColumnIfMissing("transactions", "reversesKey", "TEXT")
@@ -330,6 +331,7 @@ abstract class AppDatabase : RoomDatabase() {
                 db.addColumnIfMissing("transactions", "counterCurrency", "TEXT")
                 db.addColumnIfMissing("transactions", "source", "TEXT NOT NULL DEFAULT 'PUSH'")
                 db.addColumnIfMissing("transactions", "alsoVia", "TEXT")
+                db.addColumnIfMissing("transactions", "note", "TEXT")
                 db.addColumnIfMissing("user_rules", "labelIds", "TEXT NOT NULL DEFAULT ''")
                 db.addColumnIfMissing("user_rules", "labelNames", "TEXT NOT NULL DEFAULT ''")
                 db.addColumnIfMissing("user_rules", "transferAccountId", "TEXT")

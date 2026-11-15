@@ -68,7 +68,9 @@ object RuleBackfill {
             val value = r.amount?.value ?: return@mapNotNull null
             if (payee.isEmpty() || value == 0.0 || r.transfer != null) return@mapNotNull null
             if (r.category?.id == rule.categoryId && rule.labelIds.all { id -> r.labels.any { it.id == id } }) return@mapNotNull null
-            val kind = if (value < 0) TxKind.EXPENSE else TxKind.INCOME
+            // Income is filed by hand, never by a rule (see CategoryResolver).
+            if (value > 0) return@mapNotNull null
+            val kind = TxKind.EXPENSE
             if (order.firstOrNull { rules[it].matches(kind, payee) } != ruleIndex) return@mapNotNull null
             Item(r.id, payee, r.recordDate, value, r.amount?.currencyCode, r.category?.id, r.category?.name)
         }
@@ -83,7 +85,7 @@ object RuleBackfill {
         alsoRecordId: String? = null, today: LocalDate = LocalDate.now(),
     ): List<Item> {
         val rule = rules[ruleIndex]
-        if (rule.transferAccountId != null) return emptyList()
+        if (rule.transferAccountId != null || rule.appliesTo == AppliesTo.INCOME) return emptyList()
         val from = today.minusMonths(MONTHS).toString()
         val records = accountIds.distinct().chunked(10).flatMap { api.searchRecords(from, it, searchText(rule), recordType(rule)) }
         val extra = alsoRecordId?.takeIf { id -> records.none { it.id == id } }?.let { api.recordsById(listOf(it)) }.orEmpty()

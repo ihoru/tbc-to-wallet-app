@@ -11,6 +11,7 @@ import androidx.compose.material.icons.filled.DirectionsBus
 import androidx.compose.material.icons.filled.LocalTaxi
 import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material.icons.filled.WineBar
+import su.iho.tbc2wallet.categorize.LearnedEntry
 import su.iho.tbc2wallet.categorize.MatchType
 import su.iho.tbc2wallet.categorize.PayeeLearner
 import su.iho.tbc2wallet.categorize.RuleClashes
@@ -244,6 +245,20 @@ class ResolverTest {
         assertNull(d.categoryId)
         assertEquals(CategorySource.USER_RULE, d.source)
         assertNull(r.resolve(TxKind.EXPENSE, "John Smith", null).transferAccountId) // income-only rule
+    }
+
+    @Test fun incomeIsNeverCategorized() {
+        val payee = "MIKHAIL SINKEVICH"
+        val r = CategoryResolver(
+            listOf(UserRule("mikhail", MatchType.CONTAINS, AppliesTo.ANY, "cat-gifts", "Gifts")),
+            listOf(WalletRule(listOf("SINKEVICH"), "cat-sport", "Sport", null)),
+            CategoryResolver.payeeKey(payee).let { mapOf(it to LearnedEntry(it, "cat-health", "Health", 5, 5)) },
+        )
+        val t = TbcNotificationParser.parse("Deposit Money: 30.00 GEL\nTBC CARD\n15/11/2026\nMIKHAIL SINKEVICH")!!
+        val d = r.resolve(t.kind, t.counterParty, null)
+        assertNull(d.categoryId)
+        assertEquals(CategorySource.NONE, d.source)
+        assertEquals("cat-gifts", r.resolve(TxKind.EXPENSE, payee, null).categoryId) // expenses still use the rule
     }
 
     private fun rule(p: String, m: MatchType = MatchType.CONTAINS, s: AppliesTo = AppliesTo.ANY, cat: String = "c1", labels: List<String> = emptyList()) =
@@ -539,13 +554,15 @@ class RuleBackfillTest {
         assertEquals(listOf("b"), RuleBackfill.pick(rules, 0, listOf(tagged, untagged)).map { it.recordId })
     }
 
-    @Test fun respectsRuleType() {
-        val rules = listOf(rule("john", applies = AppliesTo.INCOME))
-        val items = RuleBackfill.pick(rules, 0, listOf(
-            record("in", "John Smith", 20.0),
-            record("out", "John Smith", -20.0),
-        ))
-        assertEquals(listOf("in"), items.map { it.recordId })
+    @Test fun leavesIncomeAlone() {
+        // Income is filed by hand: not even a rule for any type touches it.
+        for (applies in listOf(AppliesTo.ANY, AppliesTo.INCOME, AppliesTo.EXPENSE)) {
+            val items = RuleBackfill.pick(listOf(rule("john", applies = applies)), 0, listOf(
+                record("in", "John Smith", 20.0),
+                record("out", "John Smith", -20.0),
+            ))
+            assertEquals(if (applies == AppliesTo.INCOME) emptyList() else listOf("out"), items.map { it.recordId })
+        }
     }
 
     @Test fun searchTextForExactRuleIsItsLongestWord() {

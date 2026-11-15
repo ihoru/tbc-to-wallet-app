@@ -181,7 +181,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
                     accountId = accountId,
                     amount = WalletApi.Amount(tx.amount!!.toBigDecimal().negate().toDouble(), currency),
                     recordDate = tx.recordDateUtc!!,
-                    note = FAKE_NOTE_MARKER.takeIf { tx.isFake },
+                    note = walletNote(tx),
                     labelIds = listOfNotNull(fakeLabel.takeIf { tx.isFake }).ifEmpty { null },
                     transfer = WalletApi.Transfer(toId, pairingMode = "new",
                         counterAmount = WalletApi.Amount(tx.counterAmount!!.toBigDecimal().toDouble(), toCurrency)),
@@ -204,7 +204,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
                 recordDate = tx.recordDateUtc!!,
                 categoryId = decision.categoryId,
                 counterParty = tx.counterParty,
-                note = FAKE_NOTE_MARKER.takeIf { tx.isFake },
+                note = walletNote(tx),
                 labelIds = (decision.labelIds + listOfNotNull(fakeLabel.takeIf { tx.isFake })).distinct().ifEmpty { null },
                 transfer = decision.transferAccountId?.let { WalletApi.Transfer(it, pairingMode = "new") },
             )
@@ -310,6 +310,10 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         private const val TAG = "SyncWorker"
         const val FAKE_LABEL = "fake"
         const val FAKE_NOTE_MARKER = "[fake]"
+
+        /** TBC's description, with "[fake]" in front for a typed-in record so it never teaches the payee map. */
+        internal fun walletNote(tx: TransactionEntity): String? =
+            listOfNotNull(FAKE_NOTE_MARKER.takeIf { tx.isFake }, tx.note?.takeIf { it.isNotBlank() }).joinToString(" ").ifEmpty { null }
         /** categorySource of a transaction sent as a transfer; categoryName then holds the other account. */
         const val TRANSFER_SOURCE = "TRANSFER"
         private const val RECENT_LABEL_MS = 15 * 60 * 1000L

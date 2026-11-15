@@ -32,6 +32,8 @@ data class ParsedTransaction(
     /** Conversions only: what arrived on the other side, while [amount] and [currency] are what left. */
     val counterAmount: BigDecimal? = null,
     val counterCurrency: String? = null,
+    /** Free text TBC attaches to the transaction (an SMS "Description:"); goes to the Wallet record's note. */
+    val note: String? = null,
 )
 
 /**
@@ -84,6 +86,8 @@ data class ParsedTransaction(
  *   Cash Deposit: 500.00 USD
  *   TBC CARD
  *   12/09/2026
+ *
+ * The "Description:" is the sender's purpose text, not a payee, so it goes to the note.
  *
  * Card purchase by SMS: no space before the currency, the card alone in brackets,
  * the merchant and the date on lines of their own:
@@ -288,19 +292,20 @@ object TbcNotificationParser {
         if (dateIndex < bodyStart) return null
         val dt = ISO_DATETIME.matchEntire(lines[dateIndex])!!
         val accountLabel = lines.subList(bodyStart, dateIndex).joinToString(" ").ifBlank { null }
-        val counterParty = lines.drop(dateIndex + 1)
+        val note = lines.drop(dateIndex + 1)
             .joinToString(" ") { DESCRIPTION.matchEntire(it)?.groupValues?.get(1) ?: it }.trim().ifBlank { null }
         val time = dt.groupValues[2]
         return ParsedTransaction(
             kind = TxKind.INCOME,
             amount = amount.groupValues[1].toMoney(),
             currency = amount.groupValues[2],
-            counterParty = counterParty,
+            counterParty = null,
             accountLabel = accountLabel,
             cardLast4 = null,
             date = LocalDate.parse(dt.groupValues[1], ISO_DATE),
             time = LocalTime.parse(if (time.length == 5) "$time:00" else time),
             balanceAfter = null,
+            note = note,
         )
     }
 
